@@ -1,5 +1,6 @@
 from services.discord_bot import DiscordBot
 from utils.logger import Logger
+from discord.ext.commands import Context 
 
 def main():
     """Fungsi utama untuk menjalankan bot"""
@@ -8,11 +9,12 @@ def main():
     
     try:
         bot = DiscordBot()
-
+        prefix = 'ai'
         # Register commands
-        @bot.command(name='ask')
-        async def ask(ctx, *, question: str):
-            await bot.ask_command(ctx, question=question)
+        @bot.command(name=prefix)
+        async def ask(ctx: Context):
+            logger.debug(f"question: {ctx.message}")
+            await bot.message(ctx, prefix=prefix)
         
         # Run the bot
         logger.info("Menjalankan bot Discord")
