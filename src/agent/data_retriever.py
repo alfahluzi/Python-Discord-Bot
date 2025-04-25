@@ -12,7 +12,7 @@ import hashlib
 import os
 class DataRetriever():
     def __init__(self) -> None:
-        self.logger = Logger("retriever")
+        self.logger = Logger(__file__)
         self.logger.info(f"Inisialisasi Retriever")
 
         self.embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")

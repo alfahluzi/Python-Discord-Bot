@@ -8,9 +8,13 @@ class Logger:
     def __init__(self, name="discord_bot"):
         super().__init__()
         
-        # Jika name adalah path file, ambil nama file saja
-        if isinstance(name, str) and os.path.sep in name:
-            name = os.path.basename(name).replace('.py', '')
+        # Jika name adalah path file, gunakan path relatif dari src
+        if isinstance(name, str):
+            if os.path.sep in name:
+                # Ubah path menjadi format yang diinginkan (src/agent/agent_client.py -> agent.agent_client)
+                name = name.replace('src/', '').replace('.py', '').replace(os.path.sep, '.')
+            else:
+                name = name.replace('.py', '')
             
         self.logger = logging.getLogger(name)
         self.logger.setLevel(logging.DEBUG)
@@ -26,7 +30,7 @@ class Logger:
         )
         
         # File handler untuk menyimpan log ke file
-        log_file = f"logs/{name}.log"
+        log_file = f"logs/{name.replace('.', '_')}.log"
         file_handler = RotatingFileHandler(
             log_file, 
             maxBytes=10*1024*1024,  # 10MB

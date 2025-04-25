@@ -1,61 +1,36 @@
+from discord.ext.commands import Bot 
 import discord
-from discord.ext.commands import Context, Bot
 from config.config import DISCORD_TOKEN
-from agent.agent_client import AgentClient
 from utils.logger import Logger
-from utils.supabase import TableRegistry
-    
+from agent.agent_client import AgentClient
+from discord.ext.commands import Context
 class DiscordBot(Bot):
-    def __init__(self, command_prefix:str = "!"):
-        self.logger = Logger("discord_bot")
+    def __init__(self):
+        intents = discord.Intents.all()
+        super().__init__(command_prefix="!", intents=intents)
+        self.logger = Logger(__file__)
         self.logger.info("Inisialisasi DiscordBot")
-        
-        # Set up intents
-        intents = discord.Intents.all()  # Menggunakan semua intents untuk memastikan bot dapat melihat semua yang diperlukan
-        super().__init__(command_prefix=command_prefix, intents=intents)
-        
-        # Initialize Groq client
         self.ai_agent = AgentClient()
-        
-                
-    async def setup_hook(self):
-        """Setup hook untuk bot"""
-        self.logger.info("Menjalankan setup hook")
-        pass
-        
-    async def on_ready(self):
-        """Event handler ketika bot siap"""
-        # self.ai_agent.retriever.setupKnowledge(
-        #     data_dir = "src/data/knowledges",
-        #     data_type = TableRegistry.DataRegistry
-        # )
-        self.logger.info(f'{self.user} telah terhubung ke Discord!')
-        self.logger.info(f'Command yang tersedia: {[cmd.name for cmd in self.commands]}')
-        
-    async def message(self, context: Context, command:str):
-        """Command untuk bertanya ke AI"""
-        question = context.message.content[len(command):]
-        if question is "":
-            await context.send("Mohon berikan pertanyaan setelah command !ask")
-            return
-            
+
+    async def message(self, ctx: Context, command=None):
+        """Handle message from user"""
         try:
-            self.logger.info(f"Command ask dipanggil oleh {context.author} dengan pertanyaan: {question}")
-            system_message = "You are a sigma boy agent!"
-            await context.send(f"Session ID: {context.channel.id}")
+            # Process with AI agent
             response = self.ai_agent.invoke(
-                thread_id=str(context.channel.id),
-                user_id=str(context.author.id),
-                query=question,
-                system_message=system_message,
+                guild_id=str(ctx.guild.id),
+                thread_id=str(ctx.channel.id),
+                user_id=str(ctx.author.id),
+                query=ctx.message.content.replace(f"!{command}", "")
             )
-            await context.send(response.content)
-                
+            
+            # Send response
+            await ctx.send(response.content)
+            
         except Exception as e:
             error_message = f"Maaf, terjadi kesalahan: {str(e)}"
             self.logger.error(error_message)
             self.logger.exception("Detail error:")
-            await context.send(error_message)
+            await ctx.send(error_message)
                 
     def run_bot(self):
         """Menjalankan bot"""

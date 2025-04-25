@@ -1,7 +1,11 @@
-from langchain.tools import Tool
 from langchain_community.tools import DuckDuckGoSearchRun
+from langgraph.prebuilt import InjectedState
 from utils.logger import Logger
 from utils.supabase import supabase_client
+from discord.ext.commands import Context
+from typing_extensions import Annotated
+import discord
+# from app import BOT
 logger = Logger(__file__) 
 class StaticTools:
     def _web_search(query: str) -> str:
@@ -89,5 +93,34 @@ class DynamicTools:
             return_msg = f"Failed to execute query with error: {e}"
             return return_msg
 
+    async def _create_issue_channel(channel_name:str, message:str, state: Annotated[dict, InjectedState]):
+        """
+        Create issue channel base on user request or user report. 
+        This tool basicly execute after activity/tool of insert/input data to issue table.
 
-    tools = [_access_task_db, _access_issue_db]
+        Args:
+            channel_name: Name or title of the issue.
+            message: Detail of the issue that would send to channel message.
+        """
+        CATEGORY_NAME = "Issue"
+
+        # guild_context = BOT.get_guild(state["guild_id"])
+        guild_context = {}
+        category = discord.utils.get(guild_context.categories, name=CATEGORY_NAME)
+        try:
+            if not category:
+                category = await guild_context.create_category(
+                    name=CATEGORY_NAME,
+                    position=0
+                ) 
+
+            channel = await guild_context.create_text_channel(
+                name=channel_name,
+                category=category,
+            )
+            channel.send(message)
+            return f"Success create channel for ticket {channel_name}"
+        except Exception as e:
+            return f"Somethink went wrong: {e}"
+        
+    tools = [_access_task_db, _access_issue_db,]

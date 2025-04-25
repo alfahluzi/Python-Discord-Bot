@@ -3,27 +3,35 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import START, StateGraph, add_messages
 from langchain_core.messages import HumanMessage, SystemMessage, AnyMessage
 from langgraph.prebuilt import tools_condition, ToolNode
+from langchain.tools import BaseTool
 
 from pydantic import BaseModel
-from typing import TypedDict, Annotated
+from typing import TypedDict, Annotated, List
 from config.config import GROQ_API_KEY, MODEL_NAME, TEMPERATURE, MAX_TOKENS
 from utils.logger import Logger
 from agent.data_retriever import DataRetriever
 from agent.tools import StaticTools, DynamicTools
 from utils.supabase import supabase_client
+from discord.ext.commands import Context
+
 class State(TypedDict):
     messages: Annotated[list[AnyMessage], add_messages]
-    session_id: str
+    guild_id: str
+    thread_id: str
     user_id: str
 
 class AgentClient:
     def __init__(self, model_name = MODEL_NAME, temperature = TEMPERATURE, max_token = MAX_TOKENS):
-        self.logger = Logger("agent_client")
-        self.llm_logger = Logger("llm")
+        self.model_name = model_name
+        self.temperature = temperature
+        self.max_token = max_token
+        self.tools = []
+        self.logger = Logger(__file__)
+        self.llm_logger = Logger("agent.llm")
         self.logger.info(f"Inisialisasi GroqClient dengan model: {model_name}")
         self.retriever = DataRetriever()
         self.memory = MemorySaver()
-        self.tools = StaticTools.tools + DynamicTools.tools
+        self.tools: List[BaseTool] = StaticTools.tools + DynamicTools.tools
         
         llm = ChatGroq(
             api_key=GROQ_API_KEY,
@@ -33,6 +41,9 @@ class AgentClient:
         )
         self.llm = llm.bind_tools(self.tools)
         self.graph = self.__setupGraph()
+
+    def initialize_tools(self, ctx):
+        """Initialize tools with Discord context"""
 
     def __setupGraph(self):
         # Setup node
@@ -58,7 +69,7 @@ class AgentClient:
         """Fungsi internal untuk memanggil model"""
         response = self.llm.invoke(state["messages"])
         log_msg = {
-            "session_id": state["session_id"],
+            "thread_id": state["thread_id"],
             "user_id": state["user_id"],
             "model_name": response.response_metadata["model_name"],
             "token_usage": response.usage_metadata,
@@ -97,9 +108,6 @@ class AgentClient:
         except Exception as e:
             return_msg = f"Failed to execute query with error: {e}"
             self.logger.error(f"Error: {e}")
-
-
-
         return {"messages": f"{msg} \n\n {return_msg}"}
 
 
@@ -109,26 +117,30 @@ class AgentClient:
     def addTool(self, tool):
         self.tools.append(tool)
     
-    def initAgent(self, thread_id: str, system_message:str = None):
-        initial_state = {
-            "messages": [SystemMessage(system_message or "Kamu adalah asisten AI yang membantu menjawab pertanyaan.")],
-            "session_id": "init",
-            "user_id": "init"
-        }
-        config = {"configurable": {"thread_id": thread_id}}
-        self.graph.invoke(initial_state, config)
+    # def initAgent(self, thread_id: str, system_message:str = None):
+    #     initial_state = {
+    #         "messages": [SystemMessage(system_message or "Kamu adalah asisten AI yang membantu menjawab pertanyaan.")],
+    #         "session_id": "init",
+    #         "user_id": "init"
+    #     }
+    #     config = {"configurable": {"thread_id": thread_id}}
+    #     self.graph.invoke(initial_state, config)
 
-    def invoke(self, thread_id: str, user_id: str, query: str) -> str:
+    def invoke(self, guild_id:str, thread_id: str, user_id: str, query: str, system_message = None) -> str:
         try:
             self.logger.debug(f"Mendapatkan respons untuk pesan: {query}")            
 
-            initial_state = {
-                "messages": [HumanMessage(query)],
-                "session_id": thread_id,
-                "user_id": user_id or "unknown"
+            initial_state: State = {
+                "messages": [
+                        SystemMessage(system_message or "Kamu adalah asisten AI yang membantu menjawab pertanyaan."),
+                        HumanMessage(query)
+                    ],
+                "guild_id": guild_id,
+                "thread_id": thread_id,
+                "user_id": user_id or "unknown",
             }
+
             config = {"configurable": {"thread_id": thread_id}}
-            
             result = self.graph.invoke(initial_state, config)
             
             for m in result['messages'][-1:]:
