@@ -5,8 +5,13 @@ from datetime import datetime
 
 class Logger:
     """Kelas untuk mengelola logging di aplikasi"""
-    
     def __init__(self, name="discord_bot"):
+        super().__init__()
+        
+        # Jika name adalah path file, ambil nama file saja
+        if isinstance(name, str) and os.path.sep in name:
+            name = os.path.basename(name).replace('.py', '')
+            
         self.logger = logging.getLogger(name)
         self.logger.setLevel(logging.DEBUG)
         
@@ -21,7 +26,7 @@ class Logger:
         )
         
         # File handler untuk menyimpan log ke file
-        log_file = f"logs/{datetime.now().strftime('%Y-%m-%d')}.log"
+        log_file = f"logs/{name}.log"
         file_handler = RotatingFileHandler(
             log_file, 
             maxBytes=10*1024*1024,  # 10MB

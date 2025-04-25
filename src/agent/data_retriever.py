@@ -10,7 +10,7 @@ from utils.supabase import TableRegistry
 
 import hashlib
 import os
-class Retriever():
+class DataRetriever():
     def __init__(self) -> None:
         self.logger = Logger("retriever")
         self.logger.info(f"Inisialisasi Retriever")

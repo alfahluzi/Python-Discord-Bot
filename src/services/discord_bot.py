@@ -32,19 +32,20 @@ class DiscordBot(Bot):
         self.logger.info(f'{self.user} telah terhubung ke Discord!')
         self.logger.info(f'Command yang tersedia: {[cmd.name for cmd in self.commands]}')
         
-    async def message(self, context: Context, prefix:str):
+    async def message(self, context: Context, command:str):
         """Command untuk bertanya ke AI"""
-        question = context.message.content[len(prefix):]
+        question = context.message.content[len(command):]
         if question is "":
             await context.send("Mohon berikan pertanyaan setelah command !ask")
             return
             
         try:
             self.logger.info(f"Command ask dipanggil oleh {context.author} dengan pertanyaan: {question}")
-            system_message = "You are an child agent!"
+            system_message = "You are a sigma boy agent!"
             await context.send(f"Session ID: {context.channel.id}")
             response = self.ai_agent.invoke(
                 thread_id=str(context.channel.id),
+                user_id=str(context.author.id),
                 query=question,
                 system_message=system_message,
             )
