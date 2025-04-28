@@ -11,7 +11,7 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 # LLM Configuration
 MODEL_NAME = "llama-3.3-70b-versatile"
 TEMPERATURE = 0.7
-MAX_TOKENS = 1000
+MAX_TOKENS = 750
 
 # System Messages
 DEFAULT_SYSTEM_MESSAGE = "Anda adalah asisten AI yang membantu pengguna Discord."

@@ -1,21 +1,18 @@
 import logging
 import os
 from logging.handlers import RotatingFileHandler
-from datetime import datetime
 
 class Logger:
     """Kelas untuk mengelola logging di aplikasi"""
-    def __init__(self, name="discord_bot"):
+    def __init__(self, name:str):
         super().__init__()
-        
         # Jika name adalah path file, gunakan path relatif dari src
-        if isinstance(name, str):
-            if os.path.sep in name:
-                # Ubah path menjadi format yang diinginkan (src/agent/agent_client.py -> agent.agent_client)
-                name = name.replace('src/', '').replace('.py', '').replace(os.path.sep, '.')
-            else:
-                name = name.replace('.py', '')
-            
+        if "src\\" in name:
+            name = name.split("src\\")[1]
+        name = name.replace('.py', '')
+        if "\\" in name:
+            name = name.replace("\\", '.')
+
         self.logger = logging.getLogger(name)
         self.logger.setLevel(logging.DEBUG)
         
