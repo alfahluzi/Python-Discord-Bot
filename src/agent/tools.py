@@ -54,15 +54,30 @@ class Tools:
 
             Args:
                 query: postgresql query to execute
-                state (dict): The state of the operation, including the guild_id, thread_id, and user_id.
             """
 
             logger.info(f"Executing task database query: {query} with state : {state}")
             
             return_msg = ""
             try:
-                guild_context = self.bot.get_guild(state["guild_id"])
-                guild_context.get_channel(state["thread_id"]).send(f"```Executing task database query: {query}```")
+                try:
+                    loop = asyncio.get_event_loop()
+                    guild_context = loop.run_until_complete(self.bot.fetch_guild(state["guild_id"]))
+                    if not guild_context: raise Exception("Guild not found!")
+                    
+                    channel_context = guild_context.get_channel(state["thread_id"])
+                    if not channel_context: raise Exception("Channel not found!")
+                    
+                    loop.run_until_complete(channel_context.send(f"```Executing task database query: {query}```"))
+                except: 
+                    guild_context = asyncio.run(self.bot.fetch_guild(state["guild_id"]))
+                    if not guild_context: raise Exception("Guild not found!")
+                    
+                    channel_context = guild_context.get_channel(state["thread_id"])
+                    if not channel_context: raise Exception("Channel not found!")
+                    
+                    asyncio.run(channel_context.send(f"```Executing task database query: {query}```"))
+                
                 response = supabase_client.rpc("execute_raw_query", {"query": query}).execute()
                 logger.info("Task database query executed successfully")
                 return_msg = "Success execute query."
@@ -99,7 +114,6 @@ class Tools:
 
             Args:
                 query: postgresql query to execute
-                state (dict): The state of the operation, including the guild_id, thread_id, and user_id.
             """
 
             logger.info(f"Executing issue database query: {query}")
@@ -107,8 +121,24 @@ class Tools:
             logger.info(f"bot {self.bot}")
             return_msg = ""
             try:
-                guild_context = self.bot.get_guild(int(state["guild_id"]))
-                guild_context.get_channel(state["thread_id"]).send(f"```Executing issue database query: {query}```")
+                try:
+                    loop = asyncio.get_event_loop()
+                    guild_context = loop.run_until_complete(self.bot.fetch_guild(state["guild_id"]))
+                    if not guild_context: raise Exception("Guild not found!")
+                    
+                    channel_context = guild_context.get_channel(state["thread_id"])
+                    if not channel_context: raise Exception("Channel not found!")
+                    
+                    loop.run_until_complete(channel_context.send(f"```Executing issue database query: {query}```"))
+                except: 
+                    guild_context = asyncio.run(self.bot.fetch_guild(state["guild_id"]))
+                    if not guild_context: raise Exception("Guild not found!")
+                    
+                    channel_context = guild_context.get_channel(state["thread_id"])
+                    if not channel_context: raise Exception("Channel not found!")
+                    
+                    asyncio.run(channel_context.send(f"```Executing issue database query: {query}```"))
+
                 response = supabase_client.rpc("execute_raw_query", {"query": query}).execute()
                 logger.info("Issue database query executed successfully")
                 return_msg = "Success execute query."
@@ -119,7 +149,7 @@ class Tools:
                 logger.error(f"Failed to execute issue database query: {str(e)}")
                 return_msg = f"Failed to execute query with error: {e}"
                 return return_msg
-
+        
         def _create_issue_channel(channel_name:str, message:str, state: Annotated[dict, InjectedState]):
             """
             Use this tool to create a new issue channel ONLY once after a new issue report is added. 
@@ -128,7 +158,6 @@ class Tools:
             Args:
                 channel_name (str): The name or title of the issue.
                 message (str): The detail of the issue that will be sent to the channel message.
-                state (dict): The state of the operation, including the guild_id, thread_id, and user_id.
             """
             
             logger.info(f"Creating issue channel: {channel_name}")
@@ -137,26 +166,58 @@ class Tools:
             CATEGORY_NAME = "Issue"
 
             try:
-                guild_context = self.bot.get_guild(state["guild_id"])
-                guild_context.get_channel(state["thread_id"]).send(f"```Creating issue channel: {channel_name}```")
-                category = discord.utils.get(guild_context.categories, name=CATEGORY_NAME)
-                if not category:
-                    logger.info(f"Creating new category: {CATEGORY_NAME}")
-                    category = asyncio.run(
-                        guild_context.create_category(
-                            name=CATEGORY_NAME,
-                            position=0
-                        )
-                    ) 
+                try:
+                    loop = asyncio.get_event_loop()
+                    guild_context = loop.run_until_complete(self.bot.fetch_guild(state["guild_id"]))
+                    if not guild_context: raise Exception("Guild not found!")
+                    channel_context = guild_context.get_channel(state["thread_id"])
+                    if not channel_context: raise Exception("Channel not found!")
+                    loop.run_until_complete(channel_context.send(f"```Creating issue channel: {channel_name}```"))
+                
+                except: 
+                    guild_context = asyncio.run(self.bot.fetch_guild(state["guild_id"]))
+                    if not guild_context: raise Exception("Guild not found!")
+                    channel_context = guild_context.get_channel(state["thread_id"])
+                    if not channel_context: raise Exception("Channel not found!")
+                    asyncio.run(channel_context.send(f"```Creating issue channel: {channel_name}```"))
 
-                logger.info(f"Creating text channel: {channel_name}")
-                channel = asyncio.run(
-                    guild_context.create_text_channel(
-                    name=channel_name,
-                    category=category,
-                )
-                )
-                channel.send(message)
+                category = discord.utils.get(guild_context.categories, name=CATEGORY_NAME)
+                try:
+                    loop = asyncio.get_event_loop()
+                    if not category:
+                        logger.info(f"Creating new category: {CATEGORY_NAME}")
+                        category = loop.run_until_complete(
+                                guild_context.create_category(
+                                    name=CATEGORY_NAME,
+                                    position=0
+                                )
+                            )
+                    logger.info(f"Creating text channel: {channel_name}")
+                    channel = loop.run_until_complete(
+                            guild_context.create_text_channel(
+                            name=channel_name,
+                            category=category,
+                        )
+                    )
+                    loop.run_until_complete(channel.send(message)) 
+                except:
+                    if not category:
+                        logger.info(f"Creating new category: {CATEGORY_NAME}")
+                        category = asyncio.run(
+                                guild_context.create_category(
+                                    name=CATEGORY_NAME,
+                                    position=0
+                                )
+                            ) 
+                    logger.info(f"Creating text channel: {channel_name}")
+                    channel = asyncio.run(
+                            guild_context.create_text_channel(
+                            name=channel_name,
+                            category=category,
+                        )
+                    )
+                    asyncio.run(channel.send(message))
+ 
                 logger.info(f"Successfully created issue channel: {channel_name}")
                 return f"Success create channel for ticket {channel_name}"
             except Exception as e:

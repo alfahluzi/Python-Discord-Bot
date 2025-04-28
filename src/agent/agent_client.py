@@ -87,7 +87,7 @@ class AgentClient:
         
         self.llm_logger.debug(log_msg)
         self.llm_logger.debug(response)
-        return {"messages": state["messages"] + [response]}
+        return {"messages": response}
     
     def __execute_db_query_node(self, state: StateSchema):
         self.logger.info("Executing database query node")
@@ -125,7 +125,10 @@ class AgentClient:
                 "messages": [
                         SystemMessage(
                             (system_message or "Kamu adalah asisten AI yang membantu menjawab pertanyaan.") 
-                            + f"\nUser context:\n- guild_id: {guild_id}\n- thread_id: {thread_id}\n- user_id: {user_id}"
+                            + (f"\nUser context:\n")
+                            # + (f"- guild_id: {guild_id}\n")
+                            # + (f"- thread_id: {thread_id}\n")
+                            + (f"- user_id: {user_id}")
                         ),
                         HumanMessage(query)
                     ],
