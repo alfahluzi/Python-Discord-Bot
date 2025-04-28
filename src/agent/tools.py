@@ -5,9 +5,7 @@ from utils.supabase import supabase_client
 from typing_extensions import Annotated
 from discord.ext.commands import Bot
 import discord
-from langchain_core.tools import tool, StructuredTool
-import asyncio
-
+from langchain_core.tools import StructuredTool
 
 # from app import BOT
 logger = Logger(__file__) 
@@ -17,7 +15,7 @@ class Tools:
         self.bot = bot
     
     def getTools(self):
-        def _add(a:int, b:int):
+        async def _add(a:int, b:int):
             """
             Menambahkan dua angka secara asinkron.
 
@@ -30,7 +28,7 @@ class Tools:
             """
             return a + b
 
-        def _access_task_db(query:str, state: Annotated[dict, InjectedState]) -> str:
+        async def _access_task_db(query:str, state: Annotated[dict, InjectedState]) -> str:
             """
             Use this tool to query task database ONLY when you need to read or update task records. 
             You can do all function following this table detail:
@@ -60,23 +58,13 @@ class Tools:
             
             return_msg = ""
             try:
-                try:
-                    loop = asyncio.get_event_loop()
-                    guild_context = loop.run_until_complete(self.bot.fetch_guild(state["guild_id"]))
-                    if not guild_context: raise Exception("Guild not found!")
-                    
-                    channel_context = guild_context.get_channel(state["thread_id"])
-                    if not channel_context: raise Exception("Channel not found!")
-                    
-                    loop.run_until_complete(channel_context.send(f"```Executing task database query: {query}```"))
-                except: 
-                    guild_context = asyncio.run(self.bot.fetch_guild(state["guild_id"]))
-                    if not guild_context: raise Exception("Guild not found!")
-                    
-                    channel_context = guild_context.get_channel(state["thread_id"])
-                    if not channel_context: raise Exception("Channel not found!")
-                    
-                    asyncio.run(channel_context.send(f"```Executing task database query: {query}```"))
+                guild_context = await self.bot.fetch_guild(state["guild_id"])
+                if not guild_context: raise Exception("Guild not found!")
+                
+                channel_context = await guild_context.fetch_channel(state["thread_id"])
+                if not channel_context: raise Exception("Channel not found!")
+                
+                await channel_context.send(f"```Executing task database query: {query}```")
                 
                 response = supabase_client.rpc("execute_raw_query", {"query": query}).execute()
                 logger.info("Task database query executed successfully")
@@ -89,7 +77,7 @@ class Tools:
                 return_msg = f"Failed to execute query with error: {e}"
                 return return_msg
         
-        def _access_issue_db(query:str, state: Annotated[dict, InjectedState]) -> str:
+        async def _access_issue_db(query:str, state: Annotated[dict, InjectedState]) -> str:
             """
             Execute posgresql query in supabase to issues Task. You can do all function following this table detail:
             public.issues (
@@ -121,23 +109,13 @@ class Tools:
             logger.info(f"bot {self.bot}")
             return_msg = ""
             try:
-                try:
-                    loop = asyncio.get_event_loop()
-                    guild_context = loop.run_until_complete(self.bot.fetch_guild(state["guild_id"]))
-                    if not guild_context: raise Exception("Guild not found!")
-                    
-                    channel_context = guild_context.get_channel(state["thread_id"])
-                    if not channel_context: raise Exception("Channel not found!")
-                    
-                    loop.run_until_complete(channel_context.send(f"```Executing issue database query: {query}```"))
-                except: 
-                    guild_context = asyncio.run(self.bot.fetch_guild(state["guild_id"]))
-                    if not guild_context: raise Exception("Guild not found!")
-                    
-                    channel_context = guild_context.get_channel(state["thread_id"])
-                    if not channel_context: raise Exception("Channel not found!")
-                    
-                    asyncio.run(channel_context.send(f"```Executing issue database query: {query}```"))
+                guild_context = await self.bot.fetch_guild(state["guild_id"])
+                if not guild_context: raise Exception("Guild not found!")
+                
+                channel_context = await guild_context.fetch_channel(state["thread_id"])
+                if not channel_context: raise Exception("Channel not found!")
+                
+                await channel_context.send(f"```Executing issue database query: {query}```")
 
                 response = supabase_client.rpc("execute_raw_query", {"query": query}).execute()
                 logger.info("Issue database query executed successfully")
@@ -150,7 +128,7 @@ class Tools:
                 return_msg = f"Failed to execute query with error: {e}"
                 return return_msg
         
-        def _create_issue_channel(channel_name:str, message:str, state: Annotated[dict, InjectedState]):
+        async def _create_issue_channel(channel_name:str, message:str, state: Annotated[dict, InjectedState]):
             """
             Use this tool to create a new issue channel ONLY once after a new issue report is added. 
             Do not create duplicate channels.
@@ -166,65 +144,38 @@ class Tools:
             CATEGORY_NAME = "Issue"
 
             try:
-                try:
-                    loop = asyncio.get_event_loop()
-                    guild_context = loop.run_until_complete(self.bot.fetch_guild(state["guild_id"]))
-                    if not guild_context: raise Exception("Guild not found!")
-                    channel_context = guild_context.get_channel(state["thread_id"])
-                    if not channel_context: raise Exception("Channel not found!")
-                    loop.run_until_complete(channel_context.send(f"```Creating issue channel: {channel_name}```"))
+                guild_context = await self.bot.fetch_guild(state["guild_id"])
+                if not guild_context: raise Exception("Guild not found!")
+
+                channel_context = await guild_context.fetch_channel(state["thread_id"])
+                if not channel_context: raise Exception("Channel not found!")
                 
-                except: 
-                    guild_context = asyncio.run(self.bot.fetch_guild(state["guild_id"]))
-                    if not guild_context: raise Exception("Guild not found!")
-                    channel_context = guild_context.get_channel(state["thread_id"])
-                    if not channel_context: raise Exception("Channel not found!")
-                    asyncio.run(channel_context.send(f"```Creating issue channel: {channel_name}```"))
+                await channel_context.send(f"```Creating issue channel: {channel_name}```")
 
                 category = discord.utils.get(guild_context.categories, name=CATEGORY_NAME)
-                try:
-                    loop = asyncio.get_event_loop()
-                    if not category:
-                        logger.info(f"Creating new category: {CATEGORY_NAME}")
-                        category = loop.run_until_complete(
-                                guild_context.create_category(
-                                    name=CATEGORY_NAME,
-                                    position=0
-                                )
+                
+                if not category:
+                    logger.info(f"Creating new category: {CATEGORY_NAME}")
+                    category = await guild_context.create_category(
+                                name=CATEGORY_NAME,
+                                position=0
                             )
-                    logger.info(f"Creating text channel: {channel_name}")
-                    channel = loop.run_until_complete(
-                            guild_context.create_text_channel(
-                            name=channel_name,
-                            category=category,
-                        )
+                        
+                logger.info(f"Creating text channel: {channel_name}")
+                channel = await guild_context.create_text_channel(
+                        name=channel_name,
+                        category=category,
                     )
-                    loop.run_until_complete(channel.send(message)) 
-                except:
-                    if not category:
-                        logger.info(f"Creating new category: {CATEGORY_NAME}")
-                        category = asyncio.run(
-                                guild_context.create_category(
-                                    name=CATEGORY_NAME,
-                                    position=0
-                                )
-                            ) 
-                    logger.info(f"Creating text channel: {channel_name}")
-                    channel = asyncio.run(
-                            guild_context.create_text_channel(
-                            name=channel_name,
-                            category=category,
-                        )
-                    )
-                    asyncio.run(channel.send(message))
- 
+                
+                await channel.send(message) 
+              
                 logger.info(f"Successfully created issue channel: {channel_name}")
                 return f"Success create channel for ticket {channel_name}"
             except Exception as e:
                 logger.error(f"Failed to create issue channel: {str(e)}")
                 return f"Somethink went wrong: {e}"
             
-        def _web_search(query: str) -> str:
+        async def _web_search(query: str) -> str:
             """
             Use this tool to search for external information ONLY when internal knowledge is insufficient. 
             Avoid repeated searches unless necessary.
@@ -242,11 +193,11 @@ class Tools:
                 raise
         
         tools = [
-            StructuredTool.from_function(func=_add), 
-            StructuredTool.from_function(func=_access_task_db), 
-            StructuredTool.from_function(func=_access_issue_db), 
-            StructuredTool.from_function(func=_create_issue_channel), 
-            StructuredTool.from_function(func=_web_search)
+            StructuredTool.from_function(coroutine=_add), 
+            StructuredTool.from_function(coroutine=_access_task_db), 
+            StructuredTool.from_function(coroutine=_access_issue_db), 
+            StructuredTool.from_function(coroutine=_create_issue_channel), 
+            StructuredTool.from_function(coroutine=_web_search)
         ]
         logger.info(f"Init dynamic tools: {str([fx.name for fx in tools])}")
         return tools

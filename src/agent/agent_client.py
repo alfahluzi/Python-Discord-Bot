@@ -1,6 +1,6 @@
 from langchain_groq import ChatGroq
 from langgraph.checkpoint.memory import MemorySaver
-from langgraph.graph import START, StateGraph, add_messages
+from langgraph.graph import START, StateGraph, add_messages, END
 from langchain_core.messages import HumanMessage, SystemMessage, AnyMessage
 from langgraph.prebuilt import tools_condition, ToolNode
 from langchain.tools import BaseTool
@@ -9,10 +9,9 @@ from pydantic import BaseModel
 from typing import TypedDict, Annotated, List
 from config.config import GROQ_API_KEY, MODEL_NAME, TEMPERATURE, MAX_TOKENS
 from utils.logger import Logger
-from agent.data_retriever import DataRetriever
 from utils.supabase import supabase_client
-from typing import Callable
 from agent.tools import Tools
+from typing import Literal
 
 
 class StateSchema(TypedDict):
@@ -53,7 +52,15 @@ class AgentClient:
         
         # Setup edge
         graph.add_edge(START, "assistant")
-        graph.add_conditional_edges("assistant",tools_condition)
+        # graph.add_conditional_edges("assistant",tools_condition)
+        graph.add_conditional_edges(
+            "assistant", 
+            self.__should_continue, 
+            {
+                "continue": "tools",
+                "end": END,
+            },
+        )
         graph.add_edge("tools", "assistant")
 
         # Compile graph
@@ -67,11 +74,21 @@ class AgentClient:
         
         return graph
 
-    def __call_llm_node(self, state: StateSchema):
+    def __should_continue(self, state: StateSchema) -> Literal["end", "continue"]:
+        messages = state["messages"]
+        last_message = messages[-1]
+        # If there is no tool call, then we finish
+        if not last_message.tool_calls:
+            return "end"
+        # Otherwise if there is, we continue
+        else:
+            return "continue"
+        
+    async def __call_llm_node(self, state: StateSchema):
         """Internal function to call the model"""
         self.logger.info("Calling LLM node")
         
-        response = self.llm_with_tool.invoke(state["messages"])
+        response = await self.llm_with_tool.ainvoke(state["messages"])
         log_msg = {
             "thread_id": state["thread_id"],
             "user_id": state["user_id"],
@@ -87,7 +104,7 @@ class AgentClient:
         
         self.llm_logger.debug(log_msg)
         self.llm_logger.debug(response)
-        return {"messages": response}
+        return {"messages": [response]}
     
     def __execute_db_query_node(self, state: StateSchema):
         self.logger.info("Executing database query node")
@@ -117,7 +134,7 @@ class AgentClient:
             self.logger.error(f"Error: {e}")
         return {"messages": f"{msg} \n\n {return_msg}"}
 
-    def invoke(self, guild_id:str, thread_id: str, user_id: str, query: str, system_message = None) -> str:
+    async def invoke(self, guild_id:str, thread_id: str, user_id: str, query: str, system_message = None) -> str:
         try:
             self.logger.info(f"Invoking agent with query: {query}")            
 
@@ -139,7 +156,7 @@ class AgentClient:
             self.logger.info(f"init_state: {initial_state}")
             
             config = {"configurable": {"thread_id": thread_id}}
-            result = self.graph.invoke(initial_state, config)
+            result = await self.graph.ainvoke(initial_state, config)
             
             for m in result['messages'][-1:]:
                 self.logger.info(f"Agent response: {m.content}")

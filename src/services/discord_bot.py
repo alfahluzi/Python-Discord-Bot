@@ -17,7 +17,7 @@ class DiscordBot(Bot):
             """Handle message from user"""
             try:
                 # Process with AI agent
-                response = self.ai_agent.invoke(
+                response = await self.ai_agent.invoke(
                     guild_id=str(ctx.guild.id),
                     thread_id=str(ctx.channel.id),
                     user_id=str(ctx.author.name),
