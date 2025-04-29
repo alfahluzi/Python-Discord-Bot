@@ -4,14 +4,17 @@ from utils.logger import Logger
 from utils.supabase import supabase_client
 from typing_extensions import Annotated
 from discord.ext.commands import Bot
-import discord
 from langchain_core.tools import StructuredTool
+from utils.supabase import TableRegistry
+import discord
+
 
 # from app import BOT
 logger = Logger(__file__) 
 
 class Tools:
-    def __init__(self, bot:Bot) -> None:   
+    def __init__(self, ai_agent, bot:Bot) -> None:   
+        self.ai_agent = ai_agent
         self.bot = bot
     
     def getTools(self):
@@ -192,12 +195,46 @@ class Tools:
                 logger.error(f"Error during DuckDuckGo search: {str(e)}")
                 raise
         
+        async def _get_knowledge(query: str):
+            """
+            Retrieve relevant knowledge based on the provided query. 
+            Combine the contents and return as a single text output to be used as contextual reference.
+
+            Args:
+                query: keyword to find relevant knowledge
+            """
+            dataKnowledge = self.ai_agent.retriever.loadData(query, TableRegistry.DataRegistry)
+            toolKnowledge = self.ai_agent.retriever.loadData(query, TableRegistry.ToolRegistry)
+            result = [data[0].page_content for data in dataKnowledge] + [tool[0].page_content for tool in toolKnowledge]
+            return " ".join(result)
+        
+        async def _add_data_knowledge(knowledge, meta_data):
+            """
+            Store new knowledge into DataRegistry using the given knowledge as the reference key and meta_data 
+            as the content. Use this to dynamically expand the agent's knowledge base.
+            
+            Args:
+                knowledge: full knowledge information to save into database
+                meta_data: 
+                    source: [user_input, system_input],
+                    create_at: timestamp,
+                    author: [user_id, _system_],
+
+            """
+            try:
+                self.ai_agent.retriever.saveData(knowledge, meta_data, TableRegistry.DataRegistry)
+                return f"Success add data knowledge"
+            except Exception as e:
+                return f"Something went wrong: {e}"
+
         tools = [
             StructuredTool.from_function(coroutine=_add), 
             StructuredTool.from_function(coroutine=_access_task_db), 
             StructuredTool.from_function(coroutine=_access_issue_db), 
             StructuredTool.from_function(coroutine=_create_issue_channel), 
-            StructuredTool.from_function(coroutine=_web_search)
+            StructuredTool.from_function(coroutine=_web_search),
+            StructuredTool.from_function(coroutine=_get_knowledge),
+            StructuredTool.from_function(coroutine=_add_data_knowledge),
         ]
         logger.info(f"Init dynamic tools: {str([fx.name for fx in tools])}")
         return tools
