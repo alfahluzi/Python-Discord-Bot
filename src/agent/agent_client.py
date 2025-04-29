@@ -4,6 +4,7 @@ from langgraph.graph import START, StateGraph, add_messages, END
 from langchain_core.messages import HumanMessage, SystemMessage, AnyMessage
 from langgraph.prebuilt import tools_condition, ToolNode
 from langchain.tools import BaseTool
+from langchain_core.tools import StructuredTool
 
 from pydantic import BaseModel
 from typing import TypedDict, Annotated, List
@@ -34,7 +35,7 @@ class AgentClient:
             data_type=TableRegistry.DataRegistry,
         )
         self.memory = MemorySaver()
-        self.tools: List[BaseTool] = Tools(self, discord_bot).getTools()
+        self.tools: List[StructuredTool] = Tools(self, discord_bot).getTools()
         
         self.llm = ChatGroq(
             api_key=GROQ_API_KEY,
@@ -53,20 +54,12 @@ class AgentClient:
         self.logger.info("Setting up state graph")
         # Setup node
         graph = StateGraph(state_schema=StateSchema)
-        graph.add_node("assistant", self.__call_llm_node)
-        graph.add_node("tools", ToolNode(self.tools))
+        graph.add_node("assistant", self.__async_call_llm_node)
+        graph.add_node("tools", ToolNode(self.tools,handle_tool_errors=True))
         
         # Setup edge
         graph.add_edge(START, "assistant")
         graph.add_conditional_edges("assistant",tools_condition)
-        # graph.add_conditional_edges(
-        #     "assistant", 
-        #     self.__should_continue, 
-        #     {
-        #         "continue": "tools",
-        #         "end": END,
-        #     },
-        # )
         graph.add_edge("tools", "assistant")
 
         # Compile graph
@@ -79,18 +72,8 @@ class AgentClient:
             f.write(graph_image)
         
         return graph
-
-    def __should_continue(self, state: StateSchema) -> Literal["end", "continue"]:
-        messages = state["messages"]
-        last_message = messages[-1]
-        # If there is no tool call, then we finish
-        if not last_message.tool_calls:
-            return "end"
-        # Otherwise if there is, we continue
-        else:
-            return "continue"
         
-    async def __call_llm_node(self, state: StateSchema):
+    async def __async_call_llm_node(self, state: StateSchema):
         """Internal function to call the model"""
         self.logger.info("Calling LLM node")
         
@@ -110,7 +93,7 @@ class AgentClient:
         
         self.llm_logger.debug(log_msg)
         self.llm_logger.debug(response)
-        return {"messages": [response]}
+        return {"messages": response}
     
     async def invoke(self, guild_id:str, thread_id: str, user_id: str, query: str, system_message = None) -> str:
         try:
@@ -121,12 +104,12 @@ class AgentClient:
             initial_state: StateSchema = {
                 "messages": [
                         SystemMessage(
-                            (system_message or "Kamu adalah asisten AI yang membantu menjawab pertanyaan.") 
-                            + (f"\n\nUser context:\n")
+                            (system_message or "Kamu adalah asisten AI yang membantu menjawab pertanyaan.\n") 
+                            + (f"\nUser context:\n")
                             # + (f"- guild_id: {guild_id}\n")
                             # + (f"- thread_id: {thread_id}\n")
                             + (f"- user_id: {user_id}\n")
-                            + (f"\n\nKnowledge context:\n")
+                            + (f"\nKnowledge context:\n")
                             + (" ".join(knowledge))
                         ),
                         HumanMessage(query)
