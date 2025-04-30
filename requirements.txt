@@ -17,4 +17,4 @@ sentence-transformers
 hf_xet
 ipykernel
 langgraph
-watchdog
+psycopg[binary]
