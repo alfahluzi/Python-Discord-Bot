@@ -1,15 +1,12 @@
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_text_splitters import CharacterTextSplitter
 from langchain_community.vectorstores import SupabaseVectorStore
 from langchain_community.document_loaders import TextLoader
-from langchain_community.tools import VectorStoreQATool
+from langchain_text_splitters import CharacterTextSplitter
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_core.documents import Document
 from utils.supabase import supabase_client
-from utils.logger import Logger
 from utils.supabase import TableRegistry
+from utils.logger import Logger
 from pydantic import BaseModel
-
-import hashlib
 import os
 
 class MetaDataSchema(BaseModel):
@@ -38,6 +35,16 @@ class DataRetriever():
         )
         
     def setupKnowledge(self, data_dir: str, data_type: TableRegistry) -> None:
+        """
+        Mengatur pengetahuan dengan memuat dan membagi dokumen dari direktori yang ditentukan.
+        Fungsi ini akan mencari semua file dalam direktori yang ditentukan, memuat konten file tersebut,
+        dan kemudian membagi konten menjadi bagian-bagian yang lebih kecil untuk diproses lebih lanjut.
+        Dokumen yang dihasilkan kemudian akan disimpan dalam basis data yang sesuai dengan tipe data yang ditentukan.
+
+        Args:
+            data_dir (str): Direktori tempat file-file data berada.
+            data_type (TableRegistry): Tipe data yang akan digunakan untuk menyimpan pengetahuan.
+        """
         try:
             for file in os.listdir(data_dir):
                 path = os.path.join(data_dir, file)
@@ -49,6 +56,16 @@ class DataRetriever():
             self.logger.error(f"Error saat menyiapkan pengetahuan: {e}")       
        
     def saveData(self, query: str, meta_data: MetaDataSchema, data_type: TableRegistry) -> None:
+        """
+        Menyimpan data baru ke basis data yang sesuai dengan tipe data yang ditentukan.
+        Fungsi ini akan membagi kueri menjadi bagian-bagian yang lebih kecil, mencari dokumen yang mirip,
+        dan kemudian menyimpan kueri baru jika tidak ditemukan dokumen yang sangat mirip.
+
+        Args:
+            query (str): Kueri yang akan disimpan.
+            meta_data (MetaDataSchema): Metadata yang terkait dengan kueri.
+            data_type (TableRegistry): Tipe data yang akan digunakan untuk menyimpan data.
+        """
         try:
             self.logger.info("Retrieving vector store for data type...")
             store: SupabaseVectorStore = self.databases[data_type]
@@ -65,14 +82,14 @@ class DataRetriever():
 
                 results.sort(key=lambda x: x[1], reverse=True)
 
-                if results and results[0][1] > 0.9:
-                    self.logger.info("Document with >90% similarity found. Skipping save.")
+                if results and results[0][1] > 0.7:
+                    self.logger.info("Document with >70% similarity found. Skipping save.")
                     continue
                 elif len([r for r in results if r[1] > 0.5]) >= 2:
                     self.logger.info("At least 2 documents >50% similarity found. Skipping save.")
                     continue
-                elif len([r for r in results if r[1] > 0.25]) >= 4:
-                    self.logger.info("At least 4 documents >25% similarity found. Skipping save.")
+                elif len([r for r in results if r[1] > 0.33]) >= 3:
+                    self.logger.info("At least 3 documents >33% similarity found. Skipping save.")
                     continue
                 else:
                     self.logger.info("No highly similar documents found. Saving document...")
@@ -83,6 +100,15 @@ class DataRetriever():
 
     
     def saveDataDoc(self, docs: list[Document], data_type: TableRegistry) -> None:
+        """
+        Menyimpan dokumen ke basis data yang sesuai dengan tipe data yang ditentukan.
+        Fungsi ini akan mencari dokumen yang mirip untuk setiap dokumen yang diberikan,
+        dan kemudian menyimpan dokumen baru jika tidak ditemukan dokumen yang sangat mirip.
+
+        Args:
+            docs (list[Document]): Daftar dokumen yang akan disimpan.
+            data_type (TableRegistry): Tipe data yang akan digunakan untuk menyimpan dokumen.
+        """
         try:
             self.logger.info("Retrieving vector store for data type...")
             store: SupabaseVectorStore = self.databases[data_type]
@@ -100,14 +126,14 @@ class DataRetriever():
                 results.sort(key=lambda x: x[1], reverse=True)
 
                 # Implementasikan logika pengecekan
-                if results and results[0][1] > 0.9:
-                    self.logger.info("Document with >90% similarity found. Skipping save.")
+                if results and results[0][1] > 0.7:
+                    self.logger.info("Document with >70% similarity found. Skipping save.")
                     continue
                 elif len([r for r in results if r[1] > 0.5]) >= 2:
                     self.logger.info("At least 2 documents >50% similarity found. Skipping save.")
                     continue
-                elif len([r for r in results if r[1] > 0.25]) >= 4:
-                    self.logger.info("At least 4 documents >25% similarity found. Skipping save.")
+                elif len([r for r in results if r[1] > 0.33]) >= 3:
+                    self.logger.info("At least 3 documents >33% similarity found. Skipping save.")
                     continue
                 else:
                     self.logger.info("No highly similar documents found. Saving document...")
@@ -118,6 +144,18 @@ class DataRetriever():
 
 
     def loadData(self, query: str, data_type: TableRegistry):
+        """
+        Memuat data yang sesuai dengan kueri yang diberikan dari basis data yang sesuai dengan tipe data yang ditentukan.
+        Fungsi ini akan mencari dokumen yang mirip dengan kueri, mengurutkan hasil berdasarkan skor kesamaan,
+        dan kemudian mengembalikan dokumen yang paling mirip.
+
+        Args:
+            query (str): Kueri yang akan digunakan untuk memuat data.
+            data_type (TableRegistry): Tipe data yang akan digunakan untuk memuat data.
+
+        Returns:
+            list: Daftar dokumen yang paling mirip dengan kueri.
+        """
         try:
             self.logger.info("Attempting to load data for data type...")
             store: SupabaseVectorStore = self.databases[data_type]
@@ -139,15 +177,15 @@ class DataRetriever():
 
             # Step 3: Apply your logic
             top_docs = []
-            if results[0][1] >= 0.8:
+            if results[0][1] >= 0.7:
                 self.logger.info("Found high similarity > 80%, returning top 1 result.")
                 top_docs = results[:1]
             elif any(score >= 0.5 for _, score in results):
                 self.logger.info("Found medium similarity > 50%, returning top 2 results.")
                 top_docs = [res for res in results if res[1] >= 0.5][:2]
-            elif any(score >= 0.25 for _, score in results):
-                self.logger.info("Found low similarity > 25%, returning top 4 results.")
-                top_docs = [res for res in results if res[1] >= 0.25][:4]
+            elif any(score >= 0.33 for _, score in results):
+                self.logger.info("Found low similarity > 33%, returning top 3 results.")
+                top_docs = [res for res in results if res[1] >= 0.33][:3]
             else:
                 self.logger.info("No results passed the thresholds, returning empty.")
                 top_docs = []
