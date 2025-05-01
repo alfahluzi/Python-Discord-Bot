@@ -77,7 +77,7 @@ class AgentClient:
         self.logger.info("Saving graph visualization")
         graph_image = graph.get_graph(xray=True).draw_ascii()
         self.logger.info(f"Graph\n{graph_image}")
-        # with open("src/img/graph.png", "wb") as f:
+        # with open("src/data/img/graph.png", "wb") as f:
         #     f.write(graph_image)
         
         return graph
