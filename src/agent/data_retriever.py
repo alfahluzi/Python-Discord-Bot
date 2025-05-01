@@ -34,6 +34,19 @@ class DataRetriever():
             chunk_size=350
         )
         
+    def __load_and_split_docs(self, file_path: str, chunk_size=350):
+        self.logger.info("Loading documents from file...")
+        loader = TextLoader(file_path)
+        documents = loader.load()
+        self.logger.info("Splitting documents into smaller chunks...")
+        splitter = CharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=50)
+        return splitter.split_documents(documents)
+    
+    def __text_spliter(self, text: str, chunk_size=350):
+        self.logger.info("Splitting text into smaller chunks...")
+        splitter = CharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=50)
+        return splitter.split_text(text)
+    
     def setupKnowledge(self, data_dir: str, data_type: TableRegistry) -> None:
         """
         Mengatur pengetahuan dengan memuat dan membagi dokumen dari direktori yang ditentukan.
@@ -97,7 +110,6 @@ class DataRetriever():
 
         except Exception as e:
             self.logger.error(f"Error adding knowledge: {e}")
-
     
     def saveDataDoc(self, docs: list[Document], data_type: TableRegistry) -> None:
         """
@@ -141,7 +153,6 @@ class DataRetriever():
 
         except Exception as e:
             self.logger.error(f"Error saat menambahkan pengetahuan: {e}")
-
 
     def loadData(self, query: str, data_type: TableRegistry):
         """
@@ -196,20 +207,3 @@ class DataRetriever():
         except Exception as e:
             self.logger.error(f"Error loading knowledge: {e}")
             return []
-
-        
-    def __load_and_split_docs(self, file_path: str, chunk_size=350):
-        self.logger.info("Loading documents from file...")
-        loader = TextLoader(file_path)
-        documents = loader.load()
-        self.logger.info("Splitting documents into smaller chunks...")
-        splitter = CharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=50)
-        return splitter.split_documents(documents)
-    
-    def __text_spliter(self, text: str, chunk_size=350):
-        self.logger.info("Splitting text into smaller chunks...")
-        splitter = CharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=50)
-        return splitter.split_text(text)
-    
-       
- 

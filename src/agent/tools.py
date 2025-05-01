@@ -18,7 +18,52 @@ class Tools:
         self.bot = bot
     
     def getTools(self):
-        async def _add(a:int, b:int):
+        # ============================ Helper
+        async def _helper_create_issue_channel(channel_name:str, message:str, state: Annotated[dict, InjectedState]):
+            logger.info(f"Creating issue channel:\n{channel_name}\nwith state:\n{state}")
+            try:
+                guild_context = await self.bot.fetch_guild(state["guild_id"])
+                if not guild_context: 
+                    logger.error("Guild not found!")
+                    raise Exception("Guild not found!")
+
+                channel_context = await guild_context.fetch_channel(state["thread_id"])
+                if not channel_context: 
+                    logger.error("Channel not found!")
+                    raise Exception("Channel not found!")
+                
+                response_get_data = supabase_client.table("discord_settings").select("*").eq("guild_id", state["guild_id"]).execute()
+                if not response_get_data.data: 
+                    logger.error(f"IDs is not set up for this guild, please set it up using /setup_ids command!")
+                    raise Exception(f"IDs is not set up for this guild, please set it up using /setup_ids command!")
+
+                CATEGORY_ID = response_get_data.data[0]["data"]["issue_category_id"]
+                if not CATEGORY_ID: 
+                    logger.error(f"Category ID is not set up, please set it up using /setup_ids command!")
+                    raise Exception(f"Category ID is not set up, please set it up using /setup_ids command!")
+
+                category = await guild_context.fetch_channel(CATEGORY_ID)
+                if not category: 
+                    logger.error(f"Category id: {CATEGORY_ID} is invalid, please setup valid category id")
+                    raise Exception(f"Category id: {CATEGORY_ID} is invalid, please setup valid category id")
+
+                logger.info(f"Creating text channel: {channel_name}")
+                await channel_context.send(f"```Creating issue channel: {channel_name}```")
+                channel = await guild_context.create_text_channel(
+                        name=channel_name,
+                        category=category,
+                    )
+                
+                await channel.send(message) 
+              
+                logger.info(f"Successfully created issue channel: {channel_name}")
+                return f"Success create channel for ticket {channel_name}"
+            except Exception as e:
+                logger.error(f"Failed to create issue channel: {str(e)}")
+                return f"Somethink went wrong: {e}"
+            
+        # ============================ Tool
+        async def _tool_add(a:int, b:int):
             """
             Menambahkan dua angka secara asinkron.
 
@@ -31,7 +76,7 @@ class Tools:
             """
             return a + b
 
-        async def _access_task_db(query:str, state: Annotated[dict, InjectedState]) -> str:
+        async def _tool_access_task_db(query:str, state: Annotated[dict, InjectedState]) -> str:
             """
             Use this tool to query task database ONLY when you need to read or update task records. 
             You can do all function following this table detail:
@@ -80,7 +125,7 @@ class Tools:
                 return_msg = f"Failed to execute query with error: {e}"
                 return return_msg
         
-        async def _access_issue_db(query:str, state: Annotated[dict, InjectedState]) -> str:
+        async def _tool_access_issue_db(query:str, state: Annotated[dict, InjectedState]) -> str:
             """
             Execute posgresql query in supabase to issues Task. You can do all function following this table detail:
             public.issues (
@@ -129,7 +174,7 @@ class Tools:
                     if isinstance(response.data, list) and "INSERT INTO" in query.lower():                        
                         for data in response.data:
                             logger.info(f"Create issue channel with data: {data}")
-                            await __create_issue_channel(
+                            await _helper_create_issue_channel(
                                 channel_name=data.get('title', 'unknown'), 
                                 message=f"""Create at: {data.get('created_at', '')}\nAssigner: {data.get('assignee_id', '')}\nReporter: {data.get('reporter_id', '')}\nDescription: {data.get('description', '')}\n""",
                                 state=state,
@@ -143,50 +188,7 @@ class Tools:
                 return_msg = f"Failed to execute query with error: {e}"
                 return return_msg
         
-        async def __create_issue_channel(channel_name:str, message:str, state: Annotated[dict, InjectedState]):
-            logger.info(f"Creating issue channel:\n{channel_name}\nwith state:\n{state}")
-            try:
-                guild_context = await self.bot.fetch_guild(state["guild_id"])
-                if not guild_context: 
-                    logger.error("Guild not found!")
-                    raise Exception("Guild not found!")
-
-                channel_context = await guild_context.fetch_channel(state["thread_id"])
-                if not channel_context: 
-                    logger.error("Channel not found!")
-                    raise Exception("Channel not found!")
-                
-                response_get_data = supabase_client.table("discord_settings").select("*").eq("guild_id", state["guild_id"]).execute()
-                if not response_get_data.data: 
-                    logger.error(f"IDs is not set up for this guild, please set it up using /setup_ids command!")
-                    raise Exception(f"IDs is not set up for this guild, please set it up using /setup_ids command!")
-
-                CATEGORY_ID = response_get_data.data[0]["data"]["issue_category_id"]
-                if not CATEGORY_ID: 
-                    logger.error(f"Category ID is not set up, please set it up using /setup_ids command!")
-                    raise Exception(f"Category ID is not set up, please set it up using /setup_ids command!")
-
-                category = await guild_context.fetch_channel(CATEGORY_ID)
-                if not category: 
-                    logger.error(f"Category id: {CATEGORY_ID} is invalid, please setup valid category id")
-                    raise Exception(f"Category id: {CATEGORY_ID} is invalid, please setup valid category id")
-
-                logger.info(f"Creating text channel: {channel_name}")
-                await channel_context.send(f"```Creating issue channel: {channel_name}```")
-                channel = await guild_context.create_text_channel(
-                        name=channel_name,
-                        category=category,
-                    )
-                
-                await channel.send(message) 
-              
-                logger.info(f"Successfully created issue channel: {channel_name}")
-                return f"Success create channel for ticket {channel_name}"
-            except Exception as e:
-                logger.error(f"Failed to create issue channel: {str(e)}")
-                return f"Somethink went wrong: {e}"
-            
-        async def _web_search(query: str) -> str:
+        async def _tool_web_search(query: str) -> str:
             """
             Use this tool to search for external information ONLY when internal knowledge is insufficient. 
             Avoid repeated searches unless necessary.
@@ -203,7 +205,7 @@ class Tools:
                 logger.error(f"Error during DuckDuckGo search: {str(e)}")
                 raise
         
-        async def _get_knowledge(query: str):
+        async def _tool_get_knowledge(query: str):
             """
             Retrieve relevant knowledge based on the provided query. 
             Combine the contents and return as a single text output to be used as contextual reference.
@@ -216,7 +218,7 @@ class Tools:
             result = [data[0].page_content for data in dataKnowledge] + [tool[0].page_content for tool in toolKnowledge]
             return " ".join(result)
         
-        async def _add_data_knowledge(knowledge, meta_data):
+        async def _tool_add_data_knowledge(knowledge, meta_data):
             """
             Store new knowledge into DataRegistry using the given knowledge as the reference key and meta_data 
             as the content. Use this to dynamically expand the agent's knowledge base.
@@ -236,13 +238,12 @@ class Tools:
                 return f"Something went wrong: {e}"
 
         tools = [
-            StructuredTool.from_function(coroutine=_add), 
-            StructuredTool.from_function(coroutine=_access_task_db), 
-            StructuredTool.from_function(coroutine=_access_issue_db), 
-            # StructuredTool.from_function(coroutine=__create_issue_channel), 
-            StructuredTool.from_function(coroutine=_web_search),
-            StructuredTool.from_function(coroutine=_get_knowledge),
-            StructuredTool.from_function(coroutine=_add_data_knowledge),
+            StructuredTool.from_function(coroutine=_tool_add), 
+            StructuredTool.from_function(coroutine=_tool_access_task_db), 
+            StructuredTool.from_function(coroutine=_tool_access_issue_db), 
+            StructuredTool.from_function(coroutine=_tool_web_search),
+            StructuredTool.from_function(coroutine=_tool_get_knowledge),
+            StructuredTool.from_function(coroutine=_tool_add_data_knowledge),
         ]
         logger.info(f"Init dynamic tools: {str([fx.name for fx in tools])}")
         return tools
