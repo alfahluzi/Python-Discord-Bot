@@ -50,13 +50,13 @@ class Tools:
 
             The query is not support ";" character so please do not use it.
             For SELECT queries, ensure not to repeat queries unnecessarily if data is already retrieved.
-            For INSERT, UPDATE, DELETE, or other modifying queries, 
-            the query should always be executed as they change the database state.
-
+            for DELETE queries, always use WHERE clause, if no need condition, use WHERE TRUE,
+            For all queries, ensure not to repeat queries unnecessarily if query successfully executed.
+            
             Args:
                 query: postgresql query to execute
             """
-
+            query = query.encode('ascii', 'ignore').decode()
             logger.info(f"Executing task database query: {query} with state : {state}")
             
             return_msg = ""
@@ -100,12 +100,13 @@ class Tools:
 
             the query is not support ";" character so please do not use it.
             For SELECT queries, ensure not to repeat queries unnecessarily if data is already retrieved.
-            For INSERT, UPDATE, DELETE, or other modifying queries, 
-            the query should always be executed as they change the database state.
-
+            For DELETE queries, always use WHERE clause, if no need condition, use TRUNCATE queries
+            For all queries, ensure not to repeat queries unnecessarily if query successfully executed.
+            
             Args:
                 query: postgresql query to execute
             """
+            query = query.encode('ascii', 'ignore').decode()
 
             logger.info(f"Executing issue database query: {query}")
             logger.info(f"state guild {state["guild_id"]}")
@@ -124,47 +125,54 @@ class Tools:
                 logger.info("Issue database query executed successfully")
                 return_msg = "Success execute query."
                 if response.data:
-                    return_msg = f"{return_msg}\n{str(response.data)}"
+                    return_msg += " Response data:\n" + str(response.data)
+                    if isinstance(response.data, list) and "INSERT INTO" in query.lower():                        
+                        for data in response.data:
+                            logger.info(f"Create issue channel with data: {data}")
+                            await __create_issue_channel(
+                                channel_name=data.get('title', 'unknown'), 
+                                message=f"""Create at: {data.get('created_at', '')}\nAssigner: {data.get('assignee_id', '')}\nReporter: {data.get('reporter_id', '')}\nDescription: {data.get('description', '')}\n""",
+                                state=state,
+                            )
+                else: logger.info(f"No response data from query execution.") 
+                    
                 return return_msg
+
             except Exception as e:
                 logger.error(f"Failed to execute issue database query: {str(e)}")
                 return_msg = f"Failed to execute query with error: {e}"
                 return return_msg
         
-        async def _create_issue_channel(channel_name:str, message:str, state: Annotated[dict, InjectedState]):
-            """
-            Use this tool to create a new issue channel ONLY once after a new issue report is added. 
-            Do not create duplicate channels.
-
-            Args:
-                channel_name (str): The name or title of the issue.
-                message (str): The detail of the issue that will be sent to the channel message.
-            """
-            
-            logger.info(f"Creating issue channel: {channel_name}")
-            logger.info(f"state {state}")
-            logger.info(f"state guild {state["guild_id"]}")
-            CATEGORY_NAME = "Issue"
-
+        async def __create_issue_channel(channel_name:str, message:str, state: Annotated[dict, InjectedState]):
+            logger.info(f"Creating issue channel:\n{channel_name}\nwith state:\n{state}")
             try:
                 guild_context = await self.bot.fetch_guild(state["guild_id"])
-                if not guild_context: raise Exception("Guild not found!")
+                if not guild_context: 
+                    logger.error("Guild not found!")
+                    raise Exception("Guild not found!")
 
                 channel_context = await guild_context.fetch_channel(state["thread_id"])
-                if not channel_context: raise Exception("Channel not found!")
+                if not channel_context: 
+                    logger.error("Channel not found!")
+                    raise Exception("Channel not found!")
                 
-                await channel_context.send(f"```Creating issue channel: {channel_name}```")
+                response_get_data = supabase_client.table("discord_settings").select("*").eq("guild_id", state["guild_id"]).execute()
+                if not response_get_data.data: 
+                    logger.error(f"IDs is not set up for this guild, please set it up using /setup_ids command!")
+                    raise Exception(f"IDs is not set up for this guild, please set it up using /setup_ids command!")
 
-                category = discord.utils.get(guild_context.categories, name=CATEGORY_NAME)
-                
-                if not category:
-                    logger.info(f"Creating new category: {CATEGORY_NAME}")
-                    category = await guild_context.create_category(
-                                name=CATEGORY_NAME,
-                                position=0
-                            )
-                        
+                CATEGORY_ID = response_get_data.data[0]["data"]["issue_category_id"]
+                if not CATEGORY_ID: 
+                    logger.error(f"Category ID is not set up, please set it up using /setup_ids command!")
+                    raise Exception(f"Category ID is not set up, please set it up using /setup_ids command!")
+
+                category = await guild_context.fetch_channel(CATEGORY_ID)
+                if not category: 
+                    logger.error(f"Category id: {CATEGORY_ID} is invalid, please setup valid category id")
+                    raise Exception(f"Category id: {CATEGORY_ID} is invalid, please setup valid category id")
+
                 logger.info(f"Creating text channel: {channel_name}")
+                await channel_context.send(f"```Creating issue channel: {channel_name}```")
                 channel = await guild_context.create_text_channel(
                         name=channel_name,
                         category=category,
@@ -231,7 +239,7 @@ class Tools:
             StructuredTool.from_function(coroutine=_add), 
             StructuredTool.from_function(coroutine=_access_task_db), 
             StructuredTool.from_function(coroutine=_access_issue_db), 
-            StructuredTool.from_function(coroutine=_create_issue_channel), 
+            # StructuredTool.from_function(coroutine=__create_issue_channel), 
             StructuredTool.from_function(coroutine=_web_search),
             StructuredTool.from_function(coroutine=_get_knowledge),
             StructuredTool.from_function(coroutine=_add_data_knowledge),
