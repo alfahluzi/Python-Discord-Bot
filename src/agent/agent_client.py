@@ -1,6 +1,6 @@
 from langchain_groq import ChatGroq
 from langgraph.checkpoint.memory import MemorySaver
-from langgraph.prebuilt import tools_condition, ToolNode
+from langgraph.prebuilt import ToolNode
 from langgraph.graph import START, StateGraph, add_messages, END
 from langchain_core.messages import HumanMessage, SystemMessage, AnyMessage
 from langchain_core.tools import StructuredTool
@@ -46,13 +46,19 @@ class AgentClient:
         self.tokenizer = BertTokenizerFast.from_pretrained("bert-base-uncased")
         self.tools: List[StructuredTool] = Tools(self, discord_bot).getTools()
         
-        self.llm = ChatGroq(
+        self.llm_large = ChatGroq(
             api_key=GROQ_API_KEY,
             model_name=model_name,
             temperature=temperature,
             max_tokens=max_token
         )
-        self.llm_with_tool = self.llm.bind_tools(self.tools)
+        self.llm_small = ChatGroq(
+            api_key=GROQ_API_KEY,
+            model_name="llama-3.1-8b-instant",
+            temperature=temperature,
+            max_tokens=2000,
+        )
+        self.llm_with_tool = self.llm_large.bind_tools(self.tools)
         self.graph = self.__setupGraph()
 
     def __setupGraph(self):
@@ -85,7 +91,7 @@ class AgentClient:
     async def __summary_node(self, state: StateSchema):
         """
         Node ini bertugas untuk membuat ringkasan dari percakapan yang sedang berlangsung.
-        Jika panjang token pesan kurang dari 750, maka tidak ada ringkasan yang dibuat.
+        Jika panjang token pesan kurang dari 6000, maka tidak ada ringkasan yang dibuat.
         Jika ada ringkasan sebelumnya, maka ringkasan baru akan dibuat dengan memperbarui ringkasan lama.
         Setelah membuat ringkasan, pesan-pesan lama akan dihapus dan ringkasan baru akan disimpan.
         
@@ -97,11 +103,11 @@ class AgentClient:
         """
         token = self.tokenizer.encode(" ".join([msg.content for msg in state["messages"]]), add_special_tokens=False)
         self.logger.info(f"[Summary Node], total token: {len(token)}")
-        if len(token) < 750:
-            self.logger.info("Token length is less than 750")
+        if len(token) < 6000:
+            self.logger.info("Token length is less than 6000")
             return {"summary": ""}
         
-        self.logger.info("Token length is greater than 750, create summary...")
+        self.logger.info("Token length is greater than 6000, create summary...")
         summary = state.get("summary", "")
         if summary:
             prompt = (
@@ -111,7 +117,7 @@ class AgentClient:
         else: prompt = "Create a summary of the conversation above:"
 
         messages = state["messages"] + [HumanMessage(content=prompt)]
-        response = await self.llm.ainvoke(messages)
+        response = await self.llm_small.ainvoke(messages)
 
         self.logger.info("Saving summary to database...")
         self.retriever.saveData(

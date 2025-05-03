@@ -6,12 +6,18 @@ from typing_extensions import Annotated
 from discord.ext.commands import Bot
 from langchain_core.tools import StructuredTool
 from utils.supabase import TableRegistry
-import discord
-
 
 # from app import BOT
 logger = Logger(__file__) 
+from enum import Enum
 
+class ToolStatus(Enum):
+    SUCCESS = "SUCCESS"
+    FAIL = "FAIL"
+    ERROR = "ERROR"
+
+def ToolResult(status: str, result:str):
+    return F"DEFINITIONS:\nSUCCESS: Tool executed perfectly, no need to retry.\nFAIL: Tool fail to execute, maybe can try again with different args\nERROR: Tool error, no need to retry.\n\n[ToolStatus]:{status}\n[ToolResult]:{result}\n"
 class Tools:
     def __init__(self, ai_agent, bot:Bot) -> None:   
         self.ai_agent = ai_agent
@@ -74,7 +80,7 @@ class Tools:
             Returns:
                 int: Hasil penjumlahan a dan b.
             """
-            return a + b
+            return ToolResult(ToolStatus.SUCCESS, f"{a + b}")
 
         async def _tool_access_task_db(query:str, state: Annotated[dict, InjectedState]) -> str:
             """
@@ -111,19 +117,22 @@ class Tools:
                 
                 channel_context = await guild_context.fetch_channel(state["thread_id"])
                 if not channel_context: raise Exception("Channel not found!")
-                
+            except Exception as e:
+                return_msg = f"Failed to execute query with error: {e}"
+                return ToolResult(ToolStatus.ERROR, return_msg)
+            
+            try:
                 await channel_context.send(f"```Executing task database query: {query}```")
-                
                 response = supabase_client.rpc("execute_raw_query", {"query": query}).execute()
                 logger.info("Task database query executed successfully")
                 return_msg = "Success execute query."
                 if response.data:
                     return_msg = f"{return_msg}\n{str(response.data)}"
-                return return_msg
+                return ToolResult(ToolStatus.SUCCESS,return_msg)
             except Exception as e:
                 logger.error(f"Failed to execute task database query: {str(e)}")
                 return_msg = f"Failed to execute query with error: {e}"
-                return return_msg
+                return ToolResult(ToolStatus.FAIL, return_msg)
         
         async def _tool_access_issue_db(query:str, state: Annotated[dict, InjectedState]) -> str:
             """
@@ -163,7 +172,11 @@ class Tools:
                 
                 channel_context = await guild_context.fetch_channel(state["thread_id"])
                 if not channel_context: raise Exception("Channel not found!")
-                
+            except Exception as e:
+                return_msg = f"Failed to execute query with error: {e}"
+                return ToolResult(ToolStatus.ERROR, return_msg)
+
+            try:
                 await channel_context.send(f"```Executing issue database query: {query}```")
 
                 response = supabase_client.rpc("execute_raw_query", {"query": query}).execute()
@@ -180,13 +193,12 @@ class Tools:
                                 state=state,
                             )
                 else: logger.info(f"No response data from query execution.") 
-                    
-                return return_msg
+                return ToolResult(ToolStatus.SUCCESS, return_msg)
 
             except Exception as e:
                 logger.error(f"Failed to execute issue database query: {str(e)}")
                 return_msg = f"Failed to execute query with error: {e}"
-                return return_msg
+                return ToolResult(ToolStatus.FAIL, return_msg)
         
         async def _tool_web_search(query: str) -> str:
             """
@@ -200,10 +212,11 @@ class Tools:
             try:
                 result = DuckDuckGoSearchRun().run(query)
                 logger.info(f"Search completed successfully")
-                return result
+                return ToolResult(ToolStatus.SUCCESS, result)
             except Exception as e:
                 logger.error(f"Error during DuckDuckGo search: {str(e)}")
-                raise
+                result = f"Error during DuckDuckGo search: {str(e)}"
+                return ToolResult(ToolStatus.ERROR, result)
         
         async def _tool_get_knowledge(query: str):
             """
@@ -213,10 +226,13 @@ class Tools:
             Args:
                 query: keyword to find relevant knowledge
             """
-            dataKnowledge = self.ai_agent.retriever.loadData(query, TableRegistry.DataRegistry)
-            toolKnowledge = self.ai_agent.retriever.loadData(query, TableRegistry.ToolRegistry)
-            result = [data[0].page_content for data in dataKnowledge] + [tool[0].page_content for tool in toolKnowledge]
-            return " ".join(result)
+            try:
+                dataKnowledge = self.ai_agent.retriever.loadData(query, TableRegistry.DataRegistry)
+                toolKnowledge = self.ai_agent.retriever.loadData(query, TableRegistry.ToolRegistry)
+                result = [data[0].page_content for data in dataKnowledge] + [tool[0].page_content for tool in toolKnowledge]
+                return ToolResult(ToolStatus.SUCCESS, " ".join(result))
+            except Exception as e:
+                return ToolResult(ToolStatus.ERROR, f"Error to get knowledge:{e}")
         
         async def _tool_add_data_knowledge(knowledge, meta_data):
             """
@@ -233,9 +249,9 @@ class Tools:
             """
             try:
                 self.ai_agent.retriever.saveData(knowledge, meta_data, TableRegistry.DataRegistry)
-                return f"Success add data knowledge"
+                return ToolResult(ToolStatus.SUCCESS, f"Success add data knowledge")
             except Exception as e:
-                return f"Something went wrong: {e}"
+                return ToolResult(ToolStatus.ERROR, f"Something went wrong: {e}")
 
         tools = [
             StructuredTool.from_function(coroutine=_tool_add), 
