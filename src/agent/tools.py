@@ -1,75 +1,102 @@
-from langchain_community.tools import DuckDuckGoSearchRun
-from langgraph.prebuilt import InjectedState
-from utils.logger import Logger
-from utils.supabase import supabase_client
-from typing_extensions import Annotated
 from discord.ext.commands import Bot
+from langchain_community.tools import DuckDuckGoSearchRun
 from langchain_core.tools import StructuredTool
-from utils.supabase import TableRegistry
+from langgraph.prebuilt import InjectedState
+from typing_extensions import Annotated
+
+from utils.logger import Logger
+from utils.supabase import TableRegistry, supabase_client
 
 # from app import BOT
-logger = Logger(__file__) 
+logger = Logger(__file__)
 from enum import Enum
+
 
 class ToolStatus(Enum):
     SUCCESS = "SUCCESS"
     FAIL = "FAIL"
     ERROR = "ERROR"
 
-def ToolResult(status: str, result:str):
-    return F"DEFINITIONS:\nSUCCESS: Tool executed perfectly, no need to retry.\nFAIL: Tool fail to execute, maybe can try again with different args\nERROR: Tool error, no need to retry.\n\n[ToolStatus]:{status}\n[ToolResult]:{result}\n"
+
+def ToolResult(status: str, result: str):
+    return f"DEFINITIONS:\nSUCCESS: Tool executed perfectly, no need to retry.\nFAIL: Tool fail to execute, maybe can try again with different args\nERROR: Tool error, no need to retry.\n\n[ToolStatus]:{status}\n[ToolResult]:{result}\n"
+
+
 class Tools:
-    def __init__(self, ai_agent, bot:Bot) -> None:   
+    def __init__(self, ai_agent, bot: Bot) -> None:
         self.ai_agent = ai_agent
         self.bot = bot
-    
+
     def getTools(self):
         # ============================ Helper
-        async def _helper_create_issue_channel(channel_name:str, message:str, state: Annotated[dict, InjectedState]):
-            logger.info(f"Creating issue channel:\n{channel_name}\nwith state:\n{state}")
+        async def _helper_create_issue_channel(
+            channel_name: str, message: str, state: Annotated[dict, InjectedState]
+        ):
+            logger.info(
+                f"Creating issue channel:\n{channel_name}\nwith state:\n{state}"
+            )
             try:
                 guild_context = await self.bot.fetch_guild(state["guild_id"])
-                if not guild_context: 
+                if not guild_context:
                     logger.error("Guild not found!")
                     raise Exception("Guild not found!")
 
                 channel_context = await guild_context.fetch_channel(state["thread_id"])
-                if not channel_context: 
+                if not channel_context:
                     logger.error("Channel not found!")
                     raise Exception("Channel not found!")
-                
-                response_get_data = supabase_client.table("discord_settings").select("*").eq("guild_id", state["guild_id"]).execute()
-                if not response_get_data.data: 
-                    logger.error(f"IDs is not set up for this guild, please set it up using /setup_ids command!")
-                    raise Exception(f"IDs is not set up for this guild, please set it up using /setup_ids command!")
+
+                response_get_data = (
+                    supabase_client.table("discord_settings")
+                    .select("*")
+                    .eq("guild_id", state["guild_id"])
+                    .execute()
+                )
+                if not response_get_data.data:
+                    logger.error(
+                        f"IDs is not set up for this guild, please set it up using /setup_ids command!"
+                    )
+                    raise Exception(
+                        f"IDs is not set up for this guild, please set it up using /setup_ids command!"
+                    )
 
                 CATEGORY_ID = response_get_data.data[0]["data"]["issue_category_id"]
-                if not CATEGORY_ID: 
-                    logger.error(f"Category ID is not set up, please set it up using /setup_ids command!")
-                    raise Exception(f"Category ID is not set up, please set it up using /setup_ids command!")
+                if not CATEGORY_ID:
+                    logger.error(
+                        f"Category ID is not set up, please set it up using /setup_ids command!"
+                    )
+                    raise Exception(
+                        f"Category ID is not set up, please set it up using /setup_ids command!"
+                    )
 
                 category = await guild_context.fetch_channel(CATEGORY_ID)
-                if not category: 
-                    logger.error(f"Category id: {CATEGORY_ID} is invalid, please setup valid category id")
-                    raise Exception(f"Category id: {CATEGORY_ID} is invalid, please setup valid category id")
+                if not category:
+                    logger.error(
+                        f"Category id: {CATEGORY_ID} is invalid, please setup valid category id"
+                    )
+                    raise Exception(
+                        f"Category id: {CATEGORY_ID} is invalid, please setup valid category id"
+                    )
 
                 logger.info(f"Creating text channel: {channel_name}")
-                await channel_context.send(f"```Creating issue channel: {channel_name}```")
+                await channel_context.send(
+                    f"```Creating issue channel: {channel_name}```"
+                )
                 channel = await guild_context.create_text_channel(
-                        name=channel_name,
-                        category=category,
-                    )
-                
-                await channel.send(message) 
-              
+                    name=channel_name,
+                    category=category,
+                )
+
+                await channel.send(message)
+
                 logger.info(f"Successfully created issue channel: {channel_name}")
                 return f"Success create channel for ticket {channel_name}"
             except Exception as e:
                 logger.error(f"Failed to create issue channel: {str(e)}")
                 return f"Somethink went wrong: {e}"
-            
+
         # ============================ Tool
-        async def _tool_add(a:int, b:int):
+        async def _tool_add(a: int, b: int):
             """
             Menambahkan dua angka secara asinkron.
 
@@ -82,9 +109,11 @@ class Tools:
             """
             return ToolResult(ToolStatus.SUCCESS, f"{a + b}")
 
-        async def _tool_access_task_db(query:str, state: Annotated[dict, InjectedState]) -> str:
+        async def _tool_access_task_db(
+            query: str, state: Annotated[dict, InjectedState]
+        ) -> str:
             """
-            Use this tool to query task database ONLY when you need to read or update task records. 
+            Use this tool to query task database ONLY when you need to read or update task records.
             You can do all function following this table detail:
             public.task (
                 id int4 GENERATED BY DEFAULT AS IDENTITY NOT NULL,
@@ -103,38 +132,46 @@ class Tools:
             For SELECT queries, ensure not to repeat queries unnecessarily if data is already retrieved.
             for DELETE queries, always use WHERE clause, if no need condition, use WHERE TRUE,
             For all queries, ensure not to repeat queries unnecessarily if query successfully executed.
-            
+
             Args:
                 query: postgresql query to execute
             """
-            query = query.encode('ascii', 'ignore').decode()
+            query = query.encode("ascii", "ignore").decode()
             logger.info(f"Executing task database query: {query} with state : {state}")
-            
+
             return_msg = ""
             try:
                 guild_context = await self.bot.fetch_guild(state["guild_id"])
-                if not guild_context: raise Exception("Guild not found!")
-                
+                if not guild_context:
+                    raise Exception("Guild not found!")
+
                 channel_context = await guild_context.fetch_channel(state["thread_id"])
-                if not channel_context: raise Exception("Channel not found!")
+                if not channel_context:
+                    raise Exception("Channel not found!")
             except Exception as e:
                 return_msg = f"Failed to execute query with error: {e}"
                 return ToolResult(ToolStatus.ERROR, return_msg)
-            
+
             try:
-                await channel_context.send(f"```Executing task database query: {query}```")
-                response = supabase_client.rpc("execute_raw_query", {"query": query}).execute()
+                await channel_context.send(
+                    f"```Executing task database query: {query}```"
+                )
+                response = supabase_client.rpc(
+                    "execute_raw_query", {"query": query}
+                ).execute()
                 logger.info("Task database query executed successfully")
                 return_msg = "Success execute query."
                 if response.data:
                     return_msg = f"{return_msg}\n{str(response.data)}"
-                return ToolResult(ToolStatus.SUCCESS,return_msg)
+                return ToolResult(ToolStatus.SUCCESS, return_msg)
             except Exception as e:
                 logger.error(f"Failed to execute task database query: {str(e)}")
                 return_msg = f"Failed to execute query with error: {e}"
                 return ToolResult(ToolStatus.FAIL, return_msg)
-        
-        async def _tool_access_issue_db(query:str, state: Annotated[dict, InjectedState]) -> str:
+
+        async def _tool_access_issue_db(
+            query: str, state: Annotated[dict, InjectedState]
+        ) -> str:
             """
             Execute posgresql query in supabase to issues Task. You can do all function following this table detail:
             public.issues (
@@ -156,11 +193,11 @@ class Tools:
             For SELECT queries, ensure not to repeat queries unnecessarily if data is already retrieved.
             For DELETE queries, always use WHERE clause, if no need condition, use TRUNCATE queries
             For all queries, ensure not to repeat queries unnecessarily if query successfully executed.
-            
+
             Args:
                 query: postgresql query to execute
             """
-            query = query.encode('ascii', 'ignore').decode()
+            query = query.encode("ascii", "ignore").decode()
 
             logger.info(f"Executing issue database query: {query}")
             logger.info(f"state guild {state["guild_id"]}")
@@ -168,43 +205,53 @@ class Tools:
             return_msg = ""
             try:
                 guild_context = await self.bot.fetch_guild(state["guild_id"])
-                if not guild_context: raise Exception("Guild not found!")
-                
+                if not guild_context:
+                    raise Exception("Guild not found!")
+
                 channel_context = await guild_context.fetch_channel(state["thread_id"])
-                if not channel_context: raise Exception("Channel not found!")
+                if not channel_context:
+                    raise Exception("Channel not found!")
             except Exception as e:
                 return_msg = f"Failed to execute query with error: {e}"
                 return ToolResult(ToolStatus.ERROR, return_msg)
 
             try:
-                await channel_context.send(f"```Executing issue database query: {query}```")
+                await channel_context.send(
+                    f"```Executing issue database query: {query}```"
+                )
 
-                response = supabase_client.rpc("execute_raw_query", {"query": query}).execute()
+                response = supabase_client.rpc(
+                    "execute_raw_query", {"query": query}
+                ).execute()
                 logger.info("Issue database query executed successfully")
                 return_msg = "Success execute query."
                 if response.data:
                     return_msg += " Response data:\n" + str(response.data)
-                    if isinstance(response.data, list) and "INSERT INTO" in query.lower():                        
+                    if (
+                        isinstance(response.data, list)
+                        and "INSERT INTO" in query.lower()
+                    ):
                         for data in response.data:
                             logger.info(f"Create issue channel with data: {data}")
                             await _helper_create_issue_channel(
-                                channel_name=data.get('title', 'unknown'), 
+                                channel_name=data.get("title", "unknown"),
                                 message=f"""Create at: {data.get('created_at', '')}\nAssigner: {data.get('assignee_id', '')}\nReporter: {data.get('reporter_id', '')}\nDescription: {data.get('description', '')}\n""",
                                 state=state,
                             )
-                else: logger.info(f"No response data from query execution.") 
+                else:
+                    logger.info(f"No response data from query execution.")
                 return ToolResult(ToolStatus.SUCCESS, return_msg)
 
             except Exception as e:
                 logger.error(f"Failed to execute issue database query: {str(e)}")
                 return_msg = f"Failed to execute query with error: {e}"
                 return ToolResult(ToolStatus.FAIL, return_msg)
-        
+
         async def _tool_web_search(query: str) -> str:
             """
-            Use this tool to search for external information ONLY when internal knowledge is insufficient. 
+            Use this tool to search for external information ONLY when internal knowledge is insufficient.
             Avoid repeated searches unless necessary.
-            
+
             Args:
                 query: keyword to search on website
             """
@@ -217,46 +264,54 @@ class Tools:
                 logger.error(f"Error during DuckDuckGo search: {str(e)}")
                 result = f"Error during DuckDuckGo search: {str(e)}"
                 return ToolResult(ToolStatus.ERROR, result)
-        
+
         async def _tool_get_knowledge(query: str):
             """
-            Retrieve relevant knowledge based on the provided query. 
+            Retrieve relevant knowledge based on the provided query.
             Combine the contents and return as a single text output to be used as contextual reference.
 
             Args:
                 query: keyword to find relevant knowledge
             """
             try:
-                dataKnowledge = self.ai_agent.retriever.loadData(query, TableRegistry.DataRegistry)
-                toolKnowledge = self.ai_agent.retriever.loadData(query, TableRegistry.ToolRegistry)
-                result = [data[0].page_content for data in dataKnowledge] + [tool[0].page_content for tool in toolKnowledge]
+                dataKnowledge = self.ai_agent.retriever.loadData(
+                    query, TableRegistry.DataRegistry
+                )
+                toolKnowledge = self.ai_agent.retriever.loadData(
+                    query, TableRegistry.ToolRegistry
+                )
+                result = [data[0].page_content for data in dataKnowledge] + [
+                    tool[0].page_content for tool in toolKnowledge
+                ]
                 return ToolResult(ToolStatus.SUCCESS, " ".join(result))
             except Exception as e:
                 return ToolResult(ToolStatus.ERROR, f"Error to get knowledge:{e}")
-        
+
         async def _tool_add_data_knowledge(knowledge, meta_data):
             """
-            Store new knowledge into DataRegistry using the given knowledge as the reference key and meta_data 
+            Store new knowledge into DataRegistry using the given knowledge as the reference key and meta_data
             as the content. Use this to dynamically expand the agent's knowledge base.
-            
+
             Args:
                 knowledge: full knowledge information to save into database
-                meta_data: 
+                meta_data:
                     source: [user_input, system_input],
                     create_at: timestamp,
                     author: [user_id, _system_],
 
             """
             try:
-                self.ai_agent.retriever.saveData(knowledge, meta_data, TableRegistry.DataRegistry)
+                self.ai_agent.retriever.saveData(
+                    knowledge, meta_data, TableRegistry.DataRegistry
+                )
                 return ToolResult(ToolStatus.SUCCESS, f"Success add data knowledge")
             except Exception as e:
                 return ToolResult(ToolStatus.ERROR, f"Something went wrong: {e}")
 
         tools = [
-            StructuredTool.from_function(coroutine=_tool_add), 
-            StructuredTool.from_function(coroutine=_tool_access_task_db), 
-            StructuredTool.from_function(coroutine=_tool_access_issue_db), 
+            StructuredTool.from_function(coroutine=_tool_add),
+            StructuredTool.from_function(coroutine=_tool_access_task_db),
+            StructuredTool.from_function(coroutine=_tool_access_issue_db),
             StructuredTool.from_function(coroutine=_tool_web_search),
             StructuredTool.from_function(coroutine=_tool_get_knowledge),
             StructuredTool.from_function(coroutine=_tool_add_data_knowledge),

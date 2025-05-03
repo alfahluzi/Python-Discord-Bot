@@ -1,4 +1,5 @@
 import os
+
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -21,4 +22,4 @@ LOG_LEVEL = "DEBUG"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
 LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 LOG_FILE_MAX_BYTES = 10 * 1024 * 1024  # 10MB
-LOG_FILE_BACKUP_COUNT = 5 
+LOG_FILE_BACKUP_COUNT = 5
