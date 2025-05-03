@@ -1,7 +1,6 @@
 from services.discord_bot import DiscordBot
 from utils.logger import Logger
 from discord.ext.commands import Context 
-
 logger = Logger(__file__)
 
 

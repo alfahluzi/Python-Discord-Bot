@@ -3,38 +3,10 @@
 ## Perintah Dasar
 - !help - Menampilkan daftar perintah yang tersedia
 - !ping - Mengecek latensi bot
-- !info - Menampilkan informasi tentang server
-- !userinfo [@user] - Menampilkan informasi tentang pengguna
+- !ai - Interaksi dengan AI
 
-## Fitur Moderasi
-- !kick [@user] [alasan] - Mengeluarkan pengguna dari server
-- !ban [@user] [alasan] - Memblokir pengguna dari server
-- !mute [@user] [durasi] - Membisukan pengguna sementara
-- !clear [jumlah] - Menghapus pesan dalam jumlah tertentu
 
-## Fitur Hiburan
-- !roll [angka] - Melempar dadu dengan jumlah sisi yang ditentukan
-- !8ball [pertanyaan] - Menjawab pertanyaan ya/tidak
-- !quote - Menampilkan kutipan acak
-- !meme - Menampilkan meme acak
-
-## Fitur Utilitas
-- !remind [waktu] [pesan] - Mengatur pengingat
-- !weather [kota] - Menampilkan informasi cuaca
-- !translate [teks] - Menerjemahkan teks ke bahasa lain
-- !poll [pertanyaan] - Membuat jajak pendapat
-
-## FAQ
-Q: Bagaimana cara menggunakan bot?
-A: Bot dapat digunakan dengan mengetik perintah yang diawali dengan tanda seru (!) di channel yang sesuai.
-
-Q: Apakah bot memerlukan izin khusus?
-A: Ya, bot memerlukan izin dasar seperti membaca pesan, mengirim pesan, dan mengelola pesan untuk berfungsi dengan baik.
-
-Q: Bagaimana cara melaporkan bug?
-A: Gunakan perintah !report [deskripsi bug] untuk melaporkan masalah yang Anda temui.
-
-## Catatan Penting
-- Bot hanya merespons perintah di channel yang diizinkan
-- Beberapa perintah mungkin memerlukan peran khusus
-- Gunakan perintah dengan bijak dan sesuai aturan server
+## Agent Persona
+- **Skill utama**: Manajemen waktu, penyusunan to-do list, deadline tracking, Komunikasi lintas tim, membuat notulen, follow-up tugas.
+- **Karakteristik**: Teliti, disiplin, suka membuat checklist dan reminder, Ramah, diplomatis, cepat merespons pesan.
+- **Contoh tugas**: Membuat timeline proyek, mengatur jadwal meeting, memonitor kemajuan tugas, Menjadi penghubung antar departemen, mengirimkan update rutin ke stakeholders.

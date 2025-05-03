@@ -1,15 +1,19 @@
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_text_splitters import CharacterTextSplitter
 from langchain_community.vectorstores import SupabaseVectorStore
 from langchain_community.document_loaders import TextLoader
-from langchain_community.tools import VectorStoreQATool
-
+from langchain_text_splitters import CharacterTextSplitter
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_core.documents import Document
 from utils.supabase import supabase_client
-from utils.logger import Logger
 from utils.supabase import TableRegistry
-
-import hashlib
+from utils.logger import Logger
+from pydantic import BaseModel
 import os
+
+class MetaDataSchema(BaseModel):
+    id: str
+    source: str # [File, Model Response, Human Input]
+    source_id: str # if source from File, save filename, else if Human Input save user id
+    
 class DataRetriever():
     def __init__(self) -> None:
         self.logger = Logger(__file__)
@@ -30,9 +34,29 @@ class DataRetriever():
             chunk_size=350
         )
         
+    def __load_and_split_docs(self, file_path: str, chunk_size=350):
+        self.logger.info("Loading documents from file...")
+        loader = TextLoader(file_path)
+        documents = loader.load()
+        self.logger.info("Splitting documents into smaller chunks...")
+        splitter = CharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=50)
+        return splitter.split_documents(documents)
+    
+    def __text_spliter(self, text: str, chunk_size=350):
+        self.logger.info("Splitting text into smaller chunks...")
+        splitter = CharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=50)
+        return splitter.split_text(text)
+    
     def setupKnowledge(self, data_dir: str, data_type: TableRegistry) -> None:
         """
-        DANGER! This function overwrites all data on database
+        Mengatur pengetahuan dengan memuat dan membagi dokumen dari direktori yang ditentukan.
+        Fungsi ini akan mencari semua file dalam direktori yang ditentukan, memuat konten file tersebut,
+        dan kemudian membagi konten menjadi bagian-bagian yang lebih kecil untuk diproses lebih lanjut.
+        Dokumen yang dihasilkan kemudian akan disimpan dalam basis data yang sesuai dengan tipe data yang ditentukan.
+
+        Args:
+            data_dir (str): Direktori tempat file-file data berada.
+            data_type (TableRegistry): Tipe data yang akan digunakan untuk menyimpan pengetahuan.
         """
         try:
             for file in os.listdir(data_dir):
@@ -40,97 +64,146 @@ class DataRetriever():
                 if os.path.isfile(path):
                     self.logger.debug(f"File yang ditemukan: {file}")
                     docs = self.__load_and_split_docs(path)
-                    self.__create_tool_from_docs(docs, data_type)
+                    self.saveDataDoc(docs, data_type)
         except Exception as e:
             self.logger.error(f"Error saat menyiapkan pengetahuan: {e}")       
        
-    def saveData(self, data_dir: str, data_type: TableRegistry) -> None:
+    def saveData(self, query: str, meta_data: MetaDataSchema, data_type: TableRegistry) -> None:
+        """
+        Menyimpan data baru ke basis data yang sesuai dengan tipe data yang ditentukan.
+        Fungsi ini akan membagi kueri menjadi bagian-bagian yang lebih kecil, mencari dokumen yang mirip,
+        dan kemudian menyimpan kueri baru jika tidak ditemukan dokumen yang sangat mirip.
+
+        Args:
+            query (str): Kueri yang akan disimpan.
+            meta_data (MetaDataSchema): Metadata yang terkait dengan kueri.
+            data_type (TableRegistry): Tipe data yang akan digunakan untuk menyimpan data.
+        """
         try:
-            for file in os.listdir(data_dir):
-                file_path = os.path.join(data_dir, file)
-                if os.path.isfile(file_path):
-                    self.logger.debug(f"File ditemukan: {file}")
-                    docs = self.__load_and_split_docs(file_path)
+            self.logger.info("Retrieving vector store for data type...")
+            store: SupabaseVectorStore = self.databases[data_type]
+            queries = self.__text_spliter(query)
 
-                    filtered_docs = []
-                    for doc in docs:
-                        hash_str = self.__get_text_hash(doc.page_content)
-                        doc.metadata.update({"hash": hash_str, "source_file": file})
+            for q in queries:
+                self.logger.info(f"Searching for similar queries: {q[:50]}...")
 
-                        store = {
-                            TableRegistry.DataRegistry: self.data_registry,
-                            TableRegistry.ToolRegistry: self.tool_registry
-                        }.get(data_type)
+                results = store.similarity_search_with_relevance_scores(
+                    query=q,
+                    k=10,
+                    score_threshold=0.2
+                )
 
-                        if not store:
-                            raise Exception("data_type tidak valid")
+                results.sort(key=lambda x: x[1], reverse=True)
 
-                        if not self.__doc_exists(hash_str, store):
-                            filtered_docs.append(doc)
-                        else:
-                            self.logger.debug(f"Duplikat dilewati: {file} / {hash_str}")
+                if results and results[0][1] > 0.7:
+                    self.logger.info("Document with >70% similarity found. Skipping save.")
+                    continue
+                elif len([r for r in results if r[1] > 0.5]) >= 2:
+                    self.logger.info("At least 2 documents >50% similarity found. Skipping save.")
+                    continue
+                elif len([r for r in results if r[1] > 0.33]) >= 3:
+                    self.logger.info("At least 3 documents >33% similarity found. Skipping save.")
+                    continue
+                else:
+                    self.logger.info("No highly similar documents found. Saving document...")
+                    store.add_texts(texts=[q], metadatas=[meta_data])
 
-                    if filtered_docs:
-                        store.add_documents(filtered_docs)
-                        self.logger.info(f"{len(filtered_docs)} dokumen ditambahkan dari file {file}")
-                    else:
-                        self.logger.info(f"Tidak ada dokumen baru dari file {file}")
+        except Exception as e:
+            self.logger.error(f"Error adding knowledge: {e}")
+    
+    def saveDataDoc(self, docs: list[Document], data_type: TableRegistry) -> None:
+        """
+        Menyimpan dokumen ke basis data yang sesuai dengan tipe data yang ditentukan.
+        Fungsi ini akan mencari dokumen yang mirip untuk setiap dokumen yang diberikan,
+        dan kemudian menyimpan dokumen baru jika tidak ditemukan dokumen yang sangat mirip.
+
+        Args:
+            docs (list[Document]): Daftar dokumen yang akan disimpan.
+            data_type (TableRegistry): Tipe data yang akan digunakan untuk menyimpan dokumen.
+        """
+        try:
+            self.logger.info("Retrieving vector store for data type...")
+            store: SupabaseVectorStore = self.databases[data_type]
+
+            for doc in docs:
+                self.logger.info(f"Checking similarity for document: {doc.page_content[:50]}...")
+
+                results = store.similarity_search_with_relevance_scores(
+                    query=doc.page_content,
+                    k=10,  # ambil banyak, nanti disaring manual
+                    score_threshold=0.2
+                )
+
+                # Urutkan berdasarkan skor tertinggi
+                results.sort(key=lambda x: x[1], reverse=True)
+
+                # Implementasikan logika pengecekan
+                if results and results[0][1] > 0.7:
+                    self.logger.info("Document with >70% similarity found. Skipping save.")
+                    continue
+                elif len([r for r in results if r[1] > 0.5]) >= 2:
+                    self.logger.info("At least 2 documents >50% similarity found. Skipping save.")
+                    continue
+                elif len([r for r in results if r[1] > 0.33]) >= 3:
+                    self.logger.info("At least 3 documents >33% similarity found. Skipping save.")
+                    continue
+                else:
+                    self.logger.info("No highly similar documents found. Saving document...")
+                    store.add_texts(texts=[doc.page_content], metadatas=[doc.metadata])
+
         except Exception as e:
             self.logger.error(f"Error saat menambahkan pengetahuan: {e}")
 
-    def getData(self):
-        pass
+    def loadData(self, query: str, data_type: TableRegistry):
+        """
+        Memuat data yang sesuai dengan kueri yang diberikan dari basis data yang sesuai dengan tipe data yang ditentukan.
+        Fungsi ini akan mencari dokumen yang mirip dengan kueri, mengurutkan hasil berdasarkan skor kesamaan,
+        dan kemudian mengembalikan dokumen yang paling mirip.
 
-    def __get_text_hash(self, text: str) -> str:
-        return hashlib.md5(text.encode()).hexdigest()
+        Args:
+            query (str): Kueri yang akan digunakan untuk memuat data.
+            data_type (TableRegistry): Tipe data yang akan digunakan untuk memuat data.
 
-    def __doc_exists(self, hash_str: str, vector_store: SupabaseVectorStore) -> bool:
+        Returns:
+            list: Daftar dokumen yang paling mirip dengan kueri.
+        """
         try:
-            results = vector_store.similarity_search(hash_str, k=1)
-            return any(result.metadata.get("hash") == hash_str for result in results)
+            self.logger.info("Attempting to load data for data type...")
+            store: SupabaseVectorStore = self.databases[data_type]
+
+            # Step 1: Search with wider net
+            self.logger.info("Performing initial similarity search...")
+            results = store.similarity_search_with_relevance_scores(
+                query=query,
+                k=10,  # cari banyak dulu, nanti kita filter manual
+                score_threshold=0.2  # minimal 20% aja biar banyak yang ketangkep
+            )
+
+            if not results:
+                self.logger.warning("No results found.")
+                return []
+
+            # Step 2: Sort results by similarity descending
+            results.sort(key=lambda x: x[1], reverse=True)
+
+            # Step 3: Apply your logic
+            top_docs = []
+            if results[0][1] >= 0.7:
+                self.logger.info("Found high similarity > 80%, returning top 1 result.")
+                top_docs = results[:1]
+            elif any(score >= 0.5 for _, score in results):
+                self.logger.info("Found medium similarity > 50%, returning top 2 results.")
+                top_docs = [res for res in results if res[1] >= 0.5][:2]
+            elif any(score >= 0.33 for _, score in results):
+                self.logger.info("Found low similarity > 33%, returning top 3 results.")
+                top_docs = [res for res in results if res[1] >= 0.33][:3]
+            else:
+                self.logger.info("No results passed the thresholds, returning empty.")
+                top_docs = []
+
+            self.logger.info(f"Data loaded successfully. Retrieved {len(top_docs)} document(s).")
+            return top_docs
+
         except Exception as e:
-            self.logger.error(f"Error checking duplicate: {e}")
-            return False
-        
-    def __load_and_split_docs(self, file_path: str):
-        loader = TextLoader(file_path)
-        documents = loader.load()
-        splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=0)
-        return splitter.split_documents(documents)
-    
-    def __create_tool_from_docs(self, docs, data_type: TableRegistry):
-        tool = None
-        table_name, query_name, description, attr = {
-            TableRegistry.DataRegistry: ("data_registry", "match_data_registry", 
-                                         "Cari informasi dari data registry internal. Data registri berisi knowledge secara umum", 
-                                         "data_registry"),
-            TableRegistry.ToolRegistry: ("tool_registry", "match_tool_registry", 
-                                         "Cari informasi dari tool registry internal. Tool registri berisi tool yang pernah dijalankan secara aman", 
-                                         "tool_registry")
-        }.get(data_type, (None, None, None, None))
-
-        if not table_name:
-            raise Exception("data_type tidak valid. Gunakan enum class TableRegistry")
-
-        store = SupabaseVectorStore.from_documents(
-            docs,
-            self.embeddings,
-            client=supabase_client,
-            table_name=table_name,
-            query_name=query_name,
-            chunk_size=500
-        )
-
-        setattr(self, attr, store)
-
-        tool = VectorStoreQATool(
-            name=f"{table_name}_search",
-            description=description,
-            vectorstore=store,
-            llm=self.llm
-        )
-
-        self.addTool(tool)
-        
-    
- 
+            self.logger.error(f"Error loading knowledge: {e}")
+            return []
